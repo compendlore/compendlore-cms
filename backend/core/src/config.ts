@@ -8,9 +8,12 @@ export interface CoreConfig {
 	readonly sessionTtlMs: number;
 	readonly adminSessionTtlMs: number;
 	readonly shutdownTimeoutMs: number;
+	readonly installationTokenTtlMs: number;
+	readonly installationTokenFile: string;
 	readonly passwordPepperSecretRef: string;
 	readonly csrfSecretRef: string;
 	readonly dataEncryptionSecretRef: string;
+	readonly securityDigestSecretRef: string;
 	readonly outboundHosts: ReadonlySet<string>;
 }
 
@@ -51,6 +54,7 @@ export function loadCoreConfig(environment: NodeJS.ProcessEnv): CoreConfig {
 	const passwordPepperSecretRef = required(environment, "CORE_PASSWORD_PEPPER_SECRET_REF");
 	const csrfSecretRef = required(environment, "CORE_CSRF_SECRET_REF");
 	const dataEncryptionSecretRef = required(environment, "CORE_DATA_ENCRYPTION_SECRET_REF");
+	const securityDigestSecretRef = required(environment, "CORE_SECURITY_DIGEST_SECRET_REF");
 
 	const outboundHosts = new Set(
 		(environment.CORE_OUTBOUND_HOSTS ?? "")
@@ -77,9 +81,17 @@ export function loadCoreConfig(environment: NodeJS.ProcessEnv): CoreConfig {
 			10_000,
 			"CORE_SHUTDOWN_TIMEOUT_MS",
 		),
+		installationTokenTtlMs: positiveInteger(
+			environment.CORE_INSTALLATION_TOKEN_TTL_MS,
+			86_400_000,
+			"CORE_INSTALLATION_TOKEN_TTL_MS",
+		),
+		installationTokenFile:
+			environment.CORE_INSTALLATION_TOKEN_FILE?.trim() || "runtime/installation-token",
 		passwordPepperSecretRef,
 		csrfSecretRef,
 		dataEncryptionSecretRef,
+		securityDigestSecretRef,
 		outboundHosts,
 	});
 }

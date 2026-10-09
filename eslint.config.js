@@ -3,7 +3,14 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
 	{
-		ignores: ["**/build/**", "**/dist/**", "**/artifacts/**", "**/node_modules/**"],
+		ignores: [
+			"**/.encore/**",
+			"**/encore.gen/**",
+			"**/build/**",
+			"**/dist/**",
+			"**/artifacts/**",
+			"**/node_modules/**",
+		],
 	},
 	{
 		files: ["**/*.{js,mjs}"],

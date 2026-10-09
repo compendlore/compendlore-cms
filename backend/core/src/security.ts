@@ -10,6 +10,8 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import { CoreError } from "./errors.js";
+import type { AccountSecurityService } from "./account-security.js";
+import type { InstallationTokenService } from "./installation.js";
 import type { SecretCipher } from "./services.js";
 import {
 	CORE_CAPABILITIES,
@@ -100,6 +102,8 @@ export class AuthenticationService {
 	constructor(
 		private readonly store: CoreStore,
 		private readonly passwords: PasswordHasher,
+		private readonly installationTokens: InstallationTokenService,
+		private readonly accountSecurity: AccountSecurityService,
 		private readonly sessionTtlMs: number,
 		private readonly adminSessionTtlMs: number,
 		private readonly now: () => Date = () => new Date(),
@@ -109,11 +113,18 @@ export class AuthenticationService {
 		login: string;
 		displayName: string;
 		password: string;
+		installationToken: string;
 		correlationId: string;
 	}): Promise<CoreUser> {
-		return this.store.transaction(async () => {
+		const founder = await this.store.transaction(async () => {
 			if ((await this.store.countUsers()) !== 0) {
 				throw new CoreError("authorization.denied", "L'instance possède déjà un compte.");
+			}
+			if (!(await this.installationTokens.consume(input.installationToken, this.now()))) {
+				throw new CoreError(
+					"installation.token_invalid",
+					"Le jeton d’installation est invalide ou expiré.",
+				);
 			}
 			const user: CoreUser = {
 				id: randomUUID(),
@@ -134,15 +145,53 @@ export class AuthenticationService {
 			await this.audit("security.founder.created", "allowed", input.correlationId, user.id);
 			return user;
 		});
+		await this.installationTokens.complete();
+		return founder;
 	}
 
 	async login(
 		login: string,
 		password: string,
 		correlationId: string,
+		context: { readonly address?: string } = {},
 	): Promise<AuthenticatedSession> {
-		const user = await this.store.findUserByLogin(normalizeLogin(login));
+		const normalizedLogin = normalizeLogin(login);
+		try {
+			await this.accountSecurity.assertAccessAllowed(undefined, context.address);
+		} catch (error) {
+			await this.accountSecurity.recordAttempt({
+				kind: "login",
+				outcome: "blocked",
+				subject: normalizedLogin,
+				...(context.address ? { address: context.address } : {}),
+			});
+			throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
+				cause: error,
+			});
+		}
+		const user = await this.store.findUserByLogin(normalizedLogin);
+		if (user) {
+			try {
+				await this.accountSecurity.assertAccessAllowed(user.id, context.address);
+			} catch (error) {
+				await this.accountSecurity.recordAttempt({
+					kind: "login",
+					outcome: "blocked",
+					subject: normalizedLogin,
+					...(context.address ? { address: context.address } : {}),
+				});
+				throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
+					cause: error,
+				});
+			}
+		}
 		if (!user?.active || !(await this.passwords.verify(password, user.passwordDigest))) {
+			await this.accountSecurity.recordAttempt({
+				kind: "login",
+				outcome: "failed",
+				subject: normalizedLogin,
+				...(context.address ? { address: context.address } : {}),
+			});
 			await this.audit("security.login", "denied", correlationId, user?.id);
 			throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.");
 		}
@@ -157,6 +206,12 @@ export class AuthenticationService {
 			expiresAt: new Date(createdAt.getTime() + this.sessionTtlMs),
 		};
 		await this.store.createSession(session);
+		await this.accountSecurity.recordAttempt({
+			kind: "login",
+			outcome: "succeeded",
+			subject: normalizedLogin,
+			...(context.address ? { address: context.address } : {}),
+		});
 		await this.audit("security.login", "allowed", correlationId, user.id);
 		return { token, session, user };
 	}
@@ -172,6 +227,7 @@ export class AuthenticationService {
 		const user = await this.store.findUserById(session.userId);
 		if (!user?.active)
 			throw new CoreError("authentication.session_expired", "La session est invalide.");
+		await this.accountSecurity.assertAccessAllowed(user.id);
 		return { token, session, user };
 	}
 

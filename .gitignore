@@ -6,6 +6,8 @@ runtime/
 coverage/
 .cache/
 .local/
+backend/.encore/
+backend/encore.gen/
 .env
 .env.*
 !.env.example

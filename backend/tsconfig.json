@@ -15,5 +15,5 @@
 		}
 	},
 	"include": ["**/*.ts"],
-	"exclude": ["build"]
+	"exclude": [".encore", "build", "encore.gen"]
 }

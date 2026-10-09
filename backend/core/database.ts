@@ -4,7 +4,7 @@ import {
 	type ResultRow,
 	type Transaction,
 } from "encore.dev/storage/sqldb";
-import { CoreError } from "./errors.js";
+import { CoreError } from "./src/errors.js";
 
 export type SqlValue = Exclude<Primitive, undefined>;
 
@@ -107,7 +107,9 @@ export class EncoreCoreDatabase implements CoreDatabase {
 }
 
 const databaseResource = new SQLDatabase("core", {
-	migrations: "./migrations",
+	migrations: {
+		path: "./migrations",
+	},
 });
 
 export const coreDatabase: CoreDatabase = new EncoreCoreDatabase(databaseResource);

@@ -1,5 +1,6 @@
 export type CoreErrorCode =
 	| "configuration.invalid"
+	| "installation.token_invalid"
 	| "authentication.invalid_credentials"
 	| "authentication.session_expired"
 	| "authentication.two_factor_required"

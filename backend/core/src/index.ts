@@ -3,11 +3,15 @@ export const foundation = Object.freeze({
 	status: "phase-3-core",
 });
 
+export * from "./account-security.js";
 export * from "./bootstrap.js";
 export * from "./config.js";
 export * from "./errors.js";
+export * from "./installation.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";
+export * from "./restoration.js";
 export * from "./security.js";
 export * from "./services.js";
+export * from "./settings.js";
 export * from "./store.js";
