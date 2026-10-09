@@ -1,0 +1,15 @@
+{
+	"name": "@compendlore/styles",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Fondation Sass/SCSS partagée du CMS",
+	"exports": {
+		".": {
+			"sass": "./src/index.scss",
+			"default": "./src/index.scss"
+		}
+	},
+	"files": [
+		"src"
+	]
+}

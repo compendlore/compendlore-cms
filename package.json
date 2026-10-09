@@ -1,0 +1,42 @@
+{
+	"name": "compendlore-cms",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24.0.0",
+		"npm": ">=11.0.0"
+	},
+	"workspaces": [
+		"backend",
+		"frontend/*",
+		"packages/*"
+	],
+	"scripts": {
+		"dev:backend": "cd backend && encore run --port 4000 --browser never",
+		"dev:site": "npm run dev --workspace @compendlore/site",
+		"dev:administration": "npm run dev --workspace @compendlore/administration",
+		"check:backend": "cd backend && encore check",
+		"pretty": "prettier --write .",
+		"pretty:check": "prettier --check .",
+		"lint": "eslint . && npm run markdown:lint",
+		"markdown:lint": "node scripts/check-markdown.mjs",
+		"typecheck": "tsc -b --pretty false",
+		"test": "npm run build --silent && node --test",
+		"build": "tsc -b --pretty false && npm run build:frontend",
+		"build:frontend": "npm run build --workspace @compendlore/site && npm run build --workspace @compendlore/administration",
+		"deps:check": "node scripts/check-dependencies.mjs",
+		"layers:check": "node scripts/check-layers.mjs",
+		"audit": "npm audit --audit-level=moderate",
+		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build"
+	},
+	"devDependencies": {
+		"@eslint/js": "10.0.1",
+		"@types/node": "26.6.4",
+		"eslint": "10.12.0",
+		"markdownlint": "0.41.1",
+		"prettier": "3.9.9",
+		"typescript": "6.0.3",
+		"typescript-eslint": "8.71.1"
+	}
+}

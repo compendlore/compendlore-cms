@@ -1,0 +1,71 @@
+@use "tokens" as tokens;
+
+@mixin application-shell {
+	:root {
+		color: tokens.$color-text;
+		background: tokens.$color-background;
+		font-family: tokens.$font-interface;
+		font-synthesis: none;
+		text-rendering: optimizeLegibility;
+	}
+
+	* {
+		box-sizing: border-box;
+	}
+
+	body {
+		min-width: 20rem;
+		min-height: 100vh;
+		margin: 0;
+		background:
+			radial-gradient(circle at 50% -20%, rgb(216 173 87 / 8%), transparent 40%),
+			tokens.$color-background;
+	}
+
+	button,
+	input,
+	select,
+	textarea {
+		font: inherit;
+	}
+
+	.cms-foundation {
+		display: grid;
+		min-height: 100vh;
+		place-items: center;
+		padding: calc(tokens.$space-unit * 4);
+	}
+
+	.cms-foundation__content {
+		width: min(100%, tokens.$content-width);
+		padding: clamp(2rem, 6vw, 5rem);
+		border: 1px solid tokens.$color-border;
+		background: tokens.$color-surface;
+	}
+
+	.cms-foundation__eyebrow {
+		margin: 0 0 1rem;
+		color: tokens.$color-accent;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+	}
+
+	.cms-foundation__title {
+		margin: 0;
+		font-family: tokens.$font-display;
+		font-size: clamp(2.5rem, 8vw, 6rem);
+		font-weight: 400;
+		line-height: 0.95;
+		text-transform: uppercase;
+	}
+
+	.cms-foundation__description {
+		max-width: 44rem;
+		margin: 2rem 0 0;
+		color: tokens.$color-text-muted;
+		font-size: clamp(1rem, 2vw, 1.35rem);
+		line-height: 1.65;
+	}
+}

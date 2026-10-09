@@ -1,0 +1,17 @@
+{
+	"files": [],
+	"references": [
+		{
+			"path": "backend"
+		},
+		{
+			"path": "frontend/site"
+		},
+		{
+			"path": "frontend/administration"
+		},
+		{
+			"path": "packages/addon-sdk-contracts"
+		}
+	]
+}

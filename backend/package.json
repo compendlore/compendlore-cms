@@ -1,0 +1,19 @@
+{
+	"name": "@compendlore/backend",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Application backend Encore de Compendlore CMS",
+	"type": "module",
+	"dependencies": {
+		"encore.dev": "1.58.6"
+	},
+	"exports": {
+		"./core": "./build/core/src/index.js",
+		"./core/encore": "./build/core/src/encore-bootstrap.js",
+		"./cms-registry": "./build/cms-registry/src/index.js"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b --pretty false"
+	}
+}

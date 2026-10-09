@@ -1,0 +1,37 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+      - "release/**"
+      - "hotfix/**"
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
+      - name: Prepare temporary build artifact
+        run:
+          tar --exclude=node_modules --exclude=.git -czf "${{ github.event.repository.name }}-${{
+          github.sha }}.tar.gz" build packages apps backend frontend 2>/dev/null || tar
+          --exclude=node_modules --exclude=.git -czf "${{ github.event.repository.name }}-${{
+          github.sha }}.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.event.repository.name }}-${{ github.sha }}"
+          path: "${{ github.event.repository.name }}-${{ github.sha }}.tar.gz"
+          retention-days: 7

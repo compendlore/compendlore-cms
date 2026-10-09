@@ -1,0 +1,19 @@
+{
+	"extends": "../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"outDir": "build",
+		"tsBuildInfoFile": "build/.tsbuildinfo",
+		"module": "ES2022",
+		"moduleResolution": "Bundler",
+		"skipLibCheck": true,
+		"types": ["node"],
+		"paths": {
+			"encore.dev/api": ["../node_modules/encore.dev/dist/api/mod.d.ts"],
+			"encore.dev/service": ["../node_modules/encore.dev/dist/service/mod.d.ts"],
+			"encore.dev/storage/sqldb": ["../node_modules/encore.dev/dist/storage/sqldb/mod.d.ts"]
+		}
+	},
+	"include": ["**/*.ts"],
+	"exclude": ["build"]
+}

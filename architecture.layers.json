@@ -1,0 +1,34 @@
+{
+	"layers": [
+		{
+			"name": "core",
+			"paths": ["backend/core/"],
+			"mayImport": []
+		},
+		{
+			"name": "registry",
+			"paths": ["backend/cms-registry/"],
+			"mayImport": ["core"]
+		},
+		{
+			"name": "api",
+			"paths": ["backend/api/"],
+			"mayImport": ["core", "registry"]
+		},
+		{
+			"name": "sdk-contracts",
+			"paths": ["packages/addon-sdk-contracts/"],
+			"mayImport": []
+		},
+		{
+			"name": "site",
+			"paths": ["frontend/site/"],
+			"mayImport": ["sdk-contracts"]
+		},
+		{
+			"name": "administration",
+			"paths": ["frontend/administration/"],
+			"mayImport": ["sdk-contracts"]
+		}
+	]
+}
