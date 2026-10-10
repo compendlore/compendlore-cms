@@ -1,11 +1,10 @@
-export interface FoundationIdentity {
-	readonly packageName: string;
-	readonly description: string;
-	readonly status: "foundation";
-}
-
-export const foundation: FoundationIdentity = Object.freeze({
+export const foundation = Object.freeze({
 	packageName: "@compendlore/cms-registry",
 	description: "Pont déclaratif entre le Core et les modules métier",
-	status: "foundation",
+	status: "phase-4-registry",
 });
+
+export * from "./contracts.js";
+export type { RegisteredMethodContext, RegisteredMethodHandler } from "./dispatcher.js";
+export { RegistryError } from "./errors.js";
+export { CmsRegistry, createInMemoryCmsRegistry } from "./registry.js";

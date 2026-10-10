@@ -12,6 +12,7 @@ export * from "./installation.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";
 export * from "./restoration.js";
+export * from "./registry-port.js";
 export * from "./security.js";
 export * from "./services.js";
 export * from "./settings.js";
