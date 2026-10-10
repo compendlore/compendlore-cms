@@ -30,6 +30,9 @@
 		"audit": "npm audit --audit-level=moderate",
 		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build"
 	},
+	"overrides": {
+		"katex": "0.18.2"
+	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
 		"@types/node": "26.6.4",
