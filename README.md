@@ -30,3 +30,13 @@ La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 - `npm run ci` : exécute tous les contrôles d'intégration.
 
 Les builds locaux, artefacts, secrets et données runtime sont exclus de Git.
+
+## Docker
+
+Le `Dockerfile` fournit trois cibles : `site`, `administration` et `quality`. Le backend Encore
+n'utilise pas un Dockerfile artisanal : son image est produite par la commande officielle
+`encore build docker` avec `docker/encore-infra.docker.json`.
+
+L'orchestration complète reste définie par le fichier `compose.yaml` placé à la racine du workspace.
+Les fichiers `.env` locaux sont générés depuis les exemples avec `make env` et ne doivent jamais
+être versionnés.

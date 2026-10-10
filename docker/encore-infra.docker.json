@@ -1,0 +1,32 @@
+{
+	"$schema": "https://encore.dev/schemas/infra.schema.json",
+	"metadata": {
+		"app_id": "compendlore-cms",
+		"env_name": "docker-local",
+		"env_type": "development",
+		"cloud": "local",
+		"base_url": "http://localhost:4000"
+	},
+	"sql_servers": [
+		{
+			"host": "compendlore-cms-postgres:5432",
+			"tls_config": {
+				"disabled": true
+			},
+			"databases": {
+				"core": {
+					"name": "compendlore_core",
+					"username": "compendlore",
+					"password": {
+						"$env": "DB_PASSWORD"
+					}
+				}
+			}
+		}
+	],
+	"graceful_shutdown": {
+		"total": 30,
+		"shutdown_hooks": 10,
+		"handlers": 20
+	}
+}
