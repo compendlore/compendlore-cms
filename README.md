@@ -7,14 +7,17 @@ des services Encore distincts ; le Core possède les accès aux infrastructures 
 
 ## Statut
 
-Core de phase 3 et CMS Registry de phase 4 opérationnels. Aucun module historique non audité ni
-aucune logique métier ne sont présents.
+Core de phase 3, CMS Registry de phase 4 et moteur déclaratif de schéma de phase 5 opérationnels.
+Aucun module historique non audité ni aucune logique métier ne sont présents.
 
 Le contrat, la configuration et les limites du Core sont documentés dans
 [`docs/CORE.md`](docs/CORE.md).
 
 Le modèle déclaratif, le cycle de vie et la frontière du Registry sont documentés dans
 [`docs/CMS_REGISTRY.md`](docs/CMS_REGISTRY.md).
+
+Le DSL de tables, la planification et les garanties d'exécution sont documentés dans
+[`docs/SCHEMA_ENGINE.md`](docs/SCHEMA_ENGINE.md).
 
 La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 [`docs/TECHNOLOGY_STACK.md`](docs/TECHNOLOGY_STACK.md).
