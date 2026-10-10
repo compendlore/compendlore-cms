@@ -7,6 +7,7 @@ export * from "./account-security.js";
 export * from "./bootstrap.js";
 export * from "./config.js";
 export * from "./errors.js";
+export * from "./event-stream.js";
 export * from "./installation.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";

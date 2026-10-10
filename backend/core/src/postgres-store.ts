@@ -8,6 +8,8 @@ import {
 import type {
 	AuditRecord,
 	CoreEmailAddress,
+	CoreEvent,
+	CoreEventConsumer,
 	CoreInstallationState,
 	CoreInstallationToken,
 	CoreIpBan,
@@ -125,6 +127,31 @@ interface InstallationStateRow {
 	locked_at: Date | null;
 	completed_at: Date | null;
 	failure_code: string | null;
+	updated_at: Date;
+}
+
+interface EventRow {
+	[key: string]: unknown;
+	id: string;
+	sequence: string;
+	owner_identifier: string;
+	topic: string;
+	schema_version: number;
+	payload: Record<string, CoreJsonValue>;
+	occurred_at: Date;
+	received_at: Date;
+	retention_until: Date;
+	idempotency_key: string | null;
+}
+
+interface EventConsumerRow {
+	[key: string]: unknown;
+	identifier: string;
+	owner_identifier: string;
+	topics: string[];
+	last_sequence: string;
+	is_active: boolean;
+	created_at: Date;
 	updated_at: Date;
 }
 
@@ -1291,6 +1318,221 @@ export class PostgresCoreStore implements CoreStore {
 		`);
 	}
 
+	async appendEvent(event: Omit<CoreEvent, "sequence">): Promise<CoreEvent> {
+		const result = await this.query<EventRow>(/* pgsql */ sql`
+			INSERT INTO core.events (
+				id,
+				owner_identifier,
+				topic,
+				schema_version,
+				payload,
+				occurred_at,
+				received_at,
+				retention_until,
+				idempotency_key
+			)
+			VALUES (
+				${event.id},
+				${event.ownerIdentifier},
+				${event.topic},
+				${event.schemaVersion},
+				${JSON.stringify(event.payload)},
+				${event.occurredAt},
+				${event.receivedAt},
+				${event.retentionUntil},
+				${event.idempotencyKey ?? null}
+			)
+			ON CONFLICT (owner_identifier, idempotency_key)
+				WHERE idempotency_key IS NOT NULL
+			DO UPDATE SET
+				idempotency_key = excluded.idempotency_key
+			RETURNING
+				id,
+				sequence::text AS sequence,
+				owner_identifier,
+				topic,
+				schema_version,
+				payload,
+				occurred_at,
+				received_at,
+				retention_until,
+				idempotency_key
+		`);
+		const row = result.rows[0];
+		if (!row)
+			throw new CoreError("infrastructure.unavailable", "L’événement n’a pas été persisté.");
+		return mapEvent(row);
+	}
+
+	async latestEventSequence(): Promise<bigint> {
+		const result = await this.query<CountRow>(/* pgsql */ sql`
+			SELECT
+				coalesce(max(sequence), 0)::text AS count
+			FROM
+				core.events
+		`);
+		return BigInt(result.rows[0]?.count ?? "0");
+	}
+
+	async registerEventConsumer(consumer: CoreEventConsumer): Promise<CoreEventConsumer> {
+		const result = await this.query<EventConsumerRow>(/* pgsql */ sql`
+			INSERT INTO core.event_consumers (
+				identifier,
+				owner_identifier,
+				topics,
+				last_sequence,
+				is_active,
+				created_at,
+				updated_at
+			)
+			VALUES (
+				${consumer.identifier},
+				${consumer.ownerIdentifier},
+				${[...consumer.topics]},
+				${consumer.lastSequence},
+				${consumer.active},
+				${consumer.createdAt},
+				${consumer.updatedAt}
+			)
+			ON CONFLICT (identifier) DO UPDATE SET
+				topics = excluded.topics,
+				is_active = excluded.is_active,
+				updated_at = excluded.updated_at
+			WHERE
+				core.event_consumers.owner_identifier = excluded.owner_identifier
+			RETURNING
+				identifier,
+				owner_identifier,
+				topics,
+				last_sequence::text AS last_sequence,
+				is_active,
+				created_at,
+				updated_at
+		`);
+		const row = result.rows[0];
+		if (!row) {
+			throw new CoreError("authorization.denied", "Le consommateur appartient à un autre module.");
+		}
+		return mapEventConsumer(row);
+	}
+
+	async getEventConsumer(identifier: string): Promise<CoreEventConsumer | undefined> {
+		const result = await this.query<EventConsumerRow>(/* pgsql */ sql`
+			SELECT
+				identifier,
+				owner_identifier,
+				topics,
+				last_sequence::text AS last_sequence,
+				is_active,
+				created_at,
+				updated_at
+			FROM
+				core.event_consumers
+			WHERE
+				identifier = ${identifier}
+		`);
+		const row = result.rows[0];
+		return row ? mapEventConsumer(row) : undefined;
+	}
+
+	async readEventsForConsumer(identifier: string, limit: number): Promise<readonly CoreEvent[]> {
+		const result = await this.query<EventRow>(/* pgsql */ sql`
+			SELECT
+				e.id,
+				e.sequence::text AS sequence,
+				e.owner_identifier,
+				e.topic,
+				e.schema_version,
+				e.payload,
+				e.occurred_at,
+				e.received_at,
+				e.retention_until,
+				e.idempotency_key
+			FROM
+				core.events e
+				INNER JOIN core.event_consumers c ON c.identifier = ${identifier}
+			WHERE
+				c.is_active = true
+				AND e.sequence > c.last_sequence
+				AND e.topic = ANY(c.topics)
+			ORDER BY
+				e.sequence ASC
+			LIMIT ${limit}
+		`);
+		return result.rows.map(mapEvent);
+	}
+
+	async advanceEventConsumer(identifier: string, sequence: bigint, updatedAt: Date): Promise<void> {
+		const result = await this.query(/* pgsql */ sql`
+			UPDATE core.event_consumers c
+			SET
+				last_sequence = ${sequence},
+				updated_at = ${updatedAt}
+			WHERE
+				c.identifier = ${identifier}
+				AND c.is_active = true
+				AND ${sequence} >= c.last_sequence
+				AND (
+					${sequence} = c.last_sequence
+					OR EXISTS (
+						SELECT
+							1
+						FROM
+							core.events e
+						WHERE
+							e.sequence = ${sequence}
+							AND e.topic = ANY(c.topics)
+					)
+				)
+			RETURNING
+				c.identifier
+		`);
+		if (result.rowCount !== 1) {
+			throw new CoreError("lifecycle.invalid_state", "Le curseur du consommateur est invalide.");
+		}
+	}
+
+	async setEventConsumerActive(
+		identifier: string,
+		active: boolean,
+		updatedAt: Date,
+	): Promise<void> {
+		const result = await this.query(/* pgsql */ sql`
+			UPDATE core.event_consumers
+			SET
+				is_active = ${active},
+				updated_at = ${updatedAt}
+			WHERE
+				identifier = ${identifier}
+			RETURNING
+				identifier
+		`);
+		if (result.rowCount !== 1) {
+			throw new CoreError("lifecycle.invalid_state", "Le consommateur d’événements est inconnu.");
+		}
+	}
+
+	async purgeExpiredEvents(at: Date): Promise<number> {
+		const result = await this.query(/* pgsql */ sql`
+			DELETE FROM core.events e
+			WHERE
+				e.retention_until <= ${at}
+				AND NOT EXISTS (
+					SELECT
+						1
+					FROM
+						core.event_consumers c
+					WHERE
+						c.is_active = true
+						AND e.topic = ANY(c.topics)
+						AND c.last_sequence < e.sequence
+				)
+			RETURNING
+				e.id
+		`);
+		return result.rowCount;
+	}
+
 	private query<Row extends Record<string, unknown> = Record<string, unknown>>(
 		statement: Parameters<CoreDatabase["query"]>[0],
 	): Promise<DatabaseResult<Row>> {
@@ -1303,6 +1545,33 @@ export class PostgresCoreStore implements CoreStore {
 				pg_advisory_xact_lock(hashtext('core.role_assignments'))
 		`);
 	}
+}
+
+function mapEvent(row: EventRow): CoreEvent {
+	return {
+		id: row.id,
+		sequence: BigInt(row.sequence),
+		ownerIdentifier: row.owner_identifier,
+		topic: row.topic,
+		schemaVersion: row.schema_version,
+		payload: row.payload,
+		occurredAt: row.occurred_at,
+		receivedAt: row.received_at,
+		retentionUntil: row.retention_until,
+		...(row.idempotency_key ? { idempotencyKey: row.idempotency_key } : {}),
+	};
+}
+
+function mapEventConsumer(row: EventConsumerRow): CoreEventConsumer {
+	return {
+		identifier: row.identifier,
+		ownerIdentifier: row.owner_identifier,
+		topics: row.topics,
+		lastSequence: BigInt(row.last_sequence),
+		active: row.is_active,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
 }
 
 function mapUser(row: UserRow): CoreUser {

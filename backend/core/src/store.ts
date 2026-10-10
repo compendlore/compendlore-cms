@@ -65,6 +65,29 @@ export type CoreJsonValue =
 	| readonly CoreJsonValue[]
 	| { readonly [key: string]: CoreJsonValue };
 
+export interface CoreEvent {
+	readonly id: string;
+	readonly sequence: bigint;
+	readonly ownerIdentifier: string;
+	readonly topic: string;
+	readonly schemaVersion: number;
+	readonly payload: Readonly<Record<string, CoreJsonValue>>;
+	readonly occurredAt: Date;
+	readonly receivedAt: Date;
+	readonly retentionUntil: Date;
+	readonly idempotencyKey?: string;
+}
+
+export interface CoreEventConsumer {
+	readonly identifier: string;
+	readonly ownerIdentifier: string;
+	readonly topics: readonly string[];
+	readonly lastSequence: bigint;
+	readonly active: boolean;
+	readonly createdAt: Date;
+	readonly updatedAt: Date;
+}
+
 export interface CoreEmailAddress {
 	readonly id: string;
 	readonly userId: string;
@@ -241,6 +264,14 @@ export interface CoreStore {
 	getTwoFactor(userId: string): Promise<TwoFactorRegistration | undefined>;
 	consumeRecoveryCode(userId: string, digest: string): Promise<boolean>;
 	appendAudit(record: AuditRecord): Promise<void>;
+	appendEvent(event: Omit<CoreEvent, "sequence">): Promise<CoreEvent>;
+	latestEventSequence(): Promise<bigint>;
+	registerEventConsumer(consumer: CoreEventConsumer): Promise<CoreEventConsumer>;
+	getEventConsumer(identifier: string): Promise<CoreEventConsumer | undefined>;
+	readEventsForConsumer(identifier: string, limit: number): Promise<readonly CoreEvent[]>;
+	advanceEventConsumer(identifier: string, sequence: bigint, updatedAt: Date): Promise<void>;
+	setEventConsumerActive(identifier: string, active: boolean, updatedAt: Date): Promise<void>;
+	purgeExpiredEvents(at: Date): Promise<number>;
 }
 
 interface Snapshot {
@@ -267,6 +298,9 @@ interface Snapshot {
 	sessions: Map<string, CoreSession>;
 	twoFactor: Map<string, TwoFactorRegistration>;
 	audit: AuditRecord[];
+	events: CoreEvent[];
+	eventConsumers: Map<string, CoreEventConsumer>;
+	nextEventSequence: bigint;
 }
 
 export class InMemoryCoreStore implements CoreStore {
@@ -294,6 +328,9 @@ export class InMemoryCoreStore implements CoreStore {
 		sessions: new Map(),
 		twoFactor: new Map(),
 		audit: [],
+		events: [],
+		eventConsumers: new Map(),
+		nextEventSequence: 1n,
 	};
 
 	async transaction<Result>(operation: () => Promise<Result>): Promise<Result> {
@@ -732,12 +769,110 @@ export class InMemoryCoreStore implements CoreStore {
 		this.state.audit.push(record);
 	}
 
+	async appendEvent(event: Omit<CoreEvent, "sequence">): Promise<CoreEvent> {
+		if (event.idempotencyKey) {
+			const existing = this.state.events.find(
+				(candidate) =>
+					candidate.ownerIdentifier === event.ownerIdentifier &&
+					candidate.idempotencyKey === event.idempotencyKey,
+			);
+			if (existing) return existing;
+		}
+		const stored = { ...event, sequence: this.state.nextEventSequence };
+		this.state.nextEventSequence += 1n;
+		this.state.events.push(stored);
+		return stored;
+	}
+
+	async latestEventSequence(): Promise<bigint> {
+		return this.state.nextEventSequence - 1n;
+	}
+
+	async registerEventConsumer(consumer: CoreEventConsumer): Promise<CoreEventConsumer> {
+		const existing = this.state.eventConsumers.get(consumer.identifier);
+		if (existing && existing.ownerIdentifier !== consumer.ownerIdentifier) {
+			throw new CoreError("authorization.denied", "Le consommateur appartient à un autre module.");
+		}
+		const stored = existing
+			? {
+					...existing,
+					topics: [...consumer.topics],
+					active: consumer.active,
+					updatedAt: consumer.updatedAt,
+				}
+			: { ...consumer, topics: [...consumer.topics] };
+		this.state.eventConsumers.set(consumer.identifier, stored);
+		return stored;
+	}
+
+	async getEventConsumer(identifier: string): Promise<CoreEventConsumer | undefined> {
+		const consumer = this.state.eventConsumers.get(identifier);
+		return consumer ? { ...consumer, topics: [...consumer.topics] } : undefined;
+	}
+
+	async readEventsForConsumer(identifier: string, limit: number): Promise<readonly CoreEvent[]> {
+		const consumer = this.state.eventConsumers.get(identifier);
+		if (!consumer?.active) return [];
+		return this.state.events
+			.filter(
+				(event) => event.sequence > consumer.lastSequence && consumer.topics.includes(event.topic),
+			)
+			.sort((first, second) => (first.sequence < second.sequence ? -1 : 1))
+			.slice(0, limit);
+	}
+
+	async advanceEventConsumer(identifier: string, sequence: bigint, updatedAt: Date): Promise<void> {
+		const consumer = this.state.eventConsumers.get(identifier);
+		if (!consumer?.active || sequence < consumer.lastSequence) {
+			throw new CoreError("lifecycle.invalid_state", "Le curseur du consommateur est invalide.");
+		}
+		if (
+			sequence !== consumer.lastSequence &&
+			!this.state.events.some(
+				(event) => event.sequence === sequence && consumer.topics.includes(event.topic),
+			)
+		) {
+			throw new CoreError("lifecycle.invalid_state", "L’événement acquitté est invalide.");
+		}
+		this.state.eventConsumers.set(identifier, { ...consumer, lastSequence: sequence, updatedAt });
+	}
+
+	async setEventConsumerActive(
+		identifier: string,
+		active: boolean,
+		updatedAt: Date,
+	): Promise<void> {
+		const consumer = this.state.eventConsumers.get(identifier);
+		if (!consumer) {
+			throw new CoreError("lifecycle.invalid_state", "Le consommateur d’événements est inconnu.");
+		}
+		this.state.eventConsumers.set(identifier, { ...consumer, active, updatedAt });
+	}
+
+	async purgeExpiredEvents(at: Date): Promise<number> {
+		const before = this.state.events.length;
+		this.state.events = this.state.events.filter((event) => {
+			if (event.retentionUntil > at) return true;
+			return [...this.state.eventConsumers.values()].some(
+				(consumer) =>
+					consumer.active &&
+					consumer.topics.includes(event.topic) &&
+					consumer.lastSequence < event.sequence,
+			);
+		});
+		return before - this.state.events.length;
+	}
+
 	get auditRecords(): readonly AuditRecord[] {
 		return this.state.audit;
 	}
 
 	get securityAttemptRecords(): readonly CoreSecurityAttempt[] {
 		return this.state.securityAttempts;
+	}
+
+	get eventRecords(): readonly CoreEvent[] {
+		return this.state.events;
 	}
 
 	private clone(): Snapshot {
@@ -778,6 +913,14 @@ export class InMemoryCoreStore implements CoreStore {
 				]),
 			),
 			audit: [...this.state.audit],
+			events: [...this.state.events],
+			eventConsumers: new Map(
+				[...this.state.eventConsumers].map(([key, value]) => [
+					key,
+					{ ...value, topics: [...value.topics] },
+				]),
+			),
+			nextEventSequence: this.state.nextEventSequence,
 		};
 	}
 

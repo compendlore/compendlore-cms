@@ -13,6 +13,7 @@ import type { SecretProvider } from "./services.js";
 import type { CoreStore } from "./store.js";
 import { CoreSettingsService, InstallationStateService } from "./settings.js";
 import { CoreRestorationService } from "./restoration.js";
+import { CoreEventStream } from "./event-stream.js";
 
 export interface CoreApplication {
 	readonly instanceId: string;
@@ -24,6 +25,7 @@ export interface CoreApplication {
 	readonly settings: CoreSettingsService;
 	readonly installationState: InstallationStateService;
 	readonly restoration: CoreRestorationService;
+	readonly eventStream: CoreEventStream;
 }
 
 export async function bootstrapCore(input: {
@@ -69,6 +71,7 @@ export async function bootstrapCore(input: {
 			settings: new CoreSettingsService(input.store),
 			installationState: new InstallationStateService(instanceId, input.store),
 			restoration: new CoreRestorationService(input.store),
+			eventStream: new CoreEventStream(input.store),
 		};
 	} catch (error) {
 		await runtime.stop();

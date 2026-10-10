@@ -50,3 +50,17 @@ test("le jeton d'installation possède sa propre migration Core additive", async
 	assert.match(migration, /token_digest TEXT NOT NULL UNIQUE/);
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
 });
+
+test("le flux d’événements étend le Core sans table statistique métier", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/004_core_event_stream.up.sql", import.meta.url),
+		"utf8",
+	);
+
+	assert.match(migration, /ALTER TABLE core\.events\b/);
+	assert.match(migration, /CREATE TABLE core\.event_consumers\b/);
+	assert.match(migration, /idempotency_key TEXT/);
+	assert.match(migration, /retention_until TIMESTAMPTZ/);
+	assert.doesNotMatch(migration, /\b(?:statistics|analytics|metrics)\b/i);
+	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
+});

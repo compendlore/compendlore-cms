@@ -6,6 +6,7 @@ import {
 	AesGcmSecretCipher,
 	CommunicationService,
 	CoreError,
+	CoreEventStream,
 	CoreRuntime,
 	CsrfProtection,
 	InMemoryCoreStore,
@@ -189,6 +190,72 @@ test("applique les règles de stockage et de communication directe", async () =>
 	});
 	assert.deepEqual(result.recipients, ["user-1", "user-2"]);
 	assert.equal(delivered.length, 1);
+});
+
+test("fournit un flux d’événements durable et agnostique pour les modules", async () => {
+	const store = new InMemoryCoreStore();
+	let now = new Date("2026-10-10T00:00:00.000Z");
+	const events = new CoreEventStream(store, () => now);
+	await events.registerConsumer({
+		identifier: "addon.statistics.ingestion",
+		ownerIdentifier: "addon.statistics",
+		topics: ["site.page.view"],
+		startAt: "earliest",
+	});
+
+	const published = await events.publish({
+		ownerIdentifier: "native.pages",
+		topic: "site.page.view",
+		schemaVersion: 1,
+		payload: { page: "home", authenticated: false },
+		retentionUntil: new Date("2026-10-11T00:00:00.000Z"),
+		idempotencyKey: "request-1",
+	});
+	const duplicate = await events.publish({
+		ownerIdentifier: "native.pages",
+		topic: "site.page.view",
+		schemaVersion: 1,
+		payload: { page: "home", authenticated: false },
+		retentionUntil: new Date("2026-10-11T00:00:00.000Z"),
+		idempotencyKey: "request-1",
+	});
+	await assert.rejects(
+		events.publish({
+			ownerIdentifier: "native.pages",
+			topic: "site.page.view",
+			schemaVersion: 2,
+			payload: { page: "home", authenticated: false },
+			retentionUntil: new Date("2026-10-11T00:00:00.000Z"),
+			idempotencyKey: "request-1",
+		}),
+		(error) => error instanceof CoreError && error.code === "configuration.invalid",
+	);
+	await events.publish({
+		ownerIdentifier: "native.search",
+		topic: "site.search.completed",
+		schemaVersion: 1,
+		payload: { resultCount: 0 },
+		retentionUntil: new Date("2026-10-11T00:00:00.000Z"),
+	});
+
+	assert.equal(duplicate.id, published.id);
+	assert.equal((await events.read("addon.statistics.ingestion")).length, 1);
+	now = new Date("2026-10-12T00:00:00.000Z");
+	assert.equal(await events.purgeExpired(), 1);
+	await events.acknowledge("addon.statistics.ingestion", published.sequence);
+	assert.equal((await events.read("addon.statistics.ingestion")).length, 0);
+	assert.equal(await events.purgeExpired(), 1);
+	await events.deactivateConsumer("addon.statistics.ingestion");
+
+	await assert.rejects(
+		events.registerConsumer({
+			identifier: "addon.statistics.ingestion",
+			ownerIdentifier: "addon.other",
+			topics: ["site.page.view"],
+			startAt: "earliest",
+		}),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
 });
 
 test("résout les implications de capacités et refuse les rôles incompatibles", async () => {
