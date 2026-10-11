@@ -158,7 +158,7 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 				error,
 				requested_at,
 				applied_at
-			FROM core.schema_journal
+			FROM core.contribution_schema_journal
 			WHERE contribution_key = ${contributionKey}
 			ORDER BY requested_at DESC
 		`);
@@ -257,7 +257,7 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 	private writeJournal(entry: SchemaJournalEntry): Promise<unknown> {
 		return this.database.query(sql`
 			/* pgsql */
-			INSERT INTO core.schema_journal (
+			INSERT INTO core.contribution_schema_journal (
 				id, contribution_key, owner_identifier, version, fingerprint,
 				desired_state, applied_state, observed_state, plan, error,
 				requested_at, applied_at
@@ -273,7 +273,7 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 	private updateJournal(entry: SchemaJournalEntry): Promise<unknown> {
 		return this.database.query(sql`
 			/* pgsql */
-			UPDATE core.schema_journal
+			UPDATE core.contribution_schema_journal
 			SET
 				applied_state = ${entry.appliedState},
 				observed_state = ${entry.observedState},

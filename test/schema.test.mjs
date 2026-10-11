@@ -230,7 +230,9 @@ test("compile un plan validé en SQL interne sans accepter de fragment addon", a
 	assert.ok(
 		statements.some((statement) => statement.text.includes('CREATE TABLE cms_data."characters"')),
 	);
-	assert.ok(statements.some((statement) => statement.text.includes("core.schema_journal")));
+	assert.ok(
+		statements.some((statement) => statement.text.includes("core.contribution_schema_journal")),
+	);
 	assert.equal(
 		statements.some((statement) => statement.text.includes(";drop")),
 		false,
@@ -242,7 +244,8 @@ test("la migration du moteur de schéma ne crée que le journal Core et le sché
 		new URL("../backend/core/migrations/005_core_schema_journal.up.sql", import.meta.url),
 		"utf8",
 	);
-	assert.match(migration, /CREATE TABLE IF NOT EXISTS core\.schema_journal\b/);
+	assert.match(migration, /CREATE TABLE IF NOT EXISTS core\.contribution_schema_journal\b/);
+	assert.doesNotMatch(migration, /CREATE TABLE IF NOT EXISTS core\.schema_journal\b/);
 	assert.match(migration, /CREATE SCHEMA IF NOT EXISTS cms_data/);
 	assert.doesNotMatch(migration, /CREATE TABLE IF NOT EXISTS cms_data\./);
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
