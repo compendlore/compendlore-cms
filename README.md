@@ -7,9 +7,8 @@ des services Encore distincts ; le Core possède les accès aux infrastructures 
 
 ## Statut
 
-Core de phase 3, CMS Registry de phase 4, moteur déclaratif de schéma de phase 5 et passerelle API
-de phase 6 opérationnels. Aucun module historique non audité ni aucune logique métier ne sont
-présents.
+Core, CMS Registry, moteur déclaratif de schéma, passerelle API et connecteurs externes
+opérationnels. Aucun module historique non audité ni aucune logique métier ne sont présents.
 
 Le contrat, la configuration et les limites du Core sont documentés dans
 [`docs/CORE.md`](docs/CORE.md).
@@ -22,6 +21,9 @@ Le DSL de tables, la planification et les garanties d'exécution sont documenté
 
 Les audiences, contrats, contrôles et communications sont documentés dans
 [`docs/API_GATEWAY.md`](docs/API_GATEWAY.md).
+
+Les contrats sortants, flux OAuth et règles réseau sont documentés dans
+[`docs/CONNECTORS.md`](docs/CONNECTORS.md).
 
 La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 [`docs/TECHNOLOGY_STACK.md`](docs/TECHNOLOGY_STACK.md).

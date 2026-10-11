@@ -237,7 +237,7 @@ test("compile un plan validé en SQL interne sans accepter de fragment addon", a
 	);
 });
 
-test("la migration de phase 5 ne crée que le journal Core et le schéma de données", async () => {
+test("la migration du moteur de schéma ne crée que le journal Core et le schéma de données", async () => {
 	const migration = await readFile(
 		new URL("../backend/core/migrations/005_core_schema_journal.up.sql", import.meta.url),
 		"utf8",

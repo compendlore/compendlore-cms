@@ -6,7 +6,7 @@ import { foundation } from "../backend/build/core/src/index.js";
 
 test("expose une fondation minimale", () => {
 	assert.equal(foundation.packageName, "@compendlore/core");
-	assert.equal(foundation.status, "phase-3-core");
+	assert.equal(foundation.status, "operational");
 });
 
 test("la consolidation Core reste additive et limitée au schéma Core", async () => {

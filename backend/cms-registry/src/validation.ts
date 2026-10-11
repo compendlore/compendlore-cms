@@ -59,6 +59,20 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		}
 	}
 	if (definition.endpoint) validateEndpoint(definition.endpoint);
+	if (definition.type === "connector" && !definition.connector) {
+		throw invalid("Une contribution de connecteur doit déclarer son contrat.");
+	}
+	if (definition.type !== "connector" && definition.connector) {
+		throw invalid("Un contrat de connecteur ne peut appartenir qu’à un connecteur.");
+	}
+	if (definition.connector) validateConnector(definition.connector);
+	if (definition.type === "frontend-network" && !definition.frontendNetwork) {
+		throw invalid("Une contribution réseau frontend doit déclarer sa politique.");
+	}
+	if (definition.type !== "frontend-network" && definition.frontendNetwork) {
+		throw invalid("Une politique réseau frontend ne peut appartenir qu’à sa contribution.");
+	}
+	if (definition.frontendNetwork) validateFrontendNetwork(definition.frontendNetwork);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);
@@ -67,6 +81,217 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		if (definition.replacementPolicy !== "explicit") {
 			throw invalid("Un remplacement doit utiliser la politique explicite.");
 		}
+	}
+}
+
+function validateConnector(connector: NonNullable<ContributionDefinition["connector"]>): void {
+	validateIdentifier(connector.identifier, "connecteur");
+	let baseUrl: URL;
+	try {
+		baseUrl = new URL(connector.baseUrl);
+	} catch {
+		throw invalid("L’URL de base du connecteur est invalide.");
+	}
+	if (
+		baseUrl.protocol !== "https:" ||
+		baseUrl.username ||
+		baseUrl.password ||
+		baseUrl.search ||
+		baseUrl.hash ||
+		(baseUrl.port && baseUrl.port !== "443")
+	) {
+		throw invalid("L’URL de base du connecteur doit être une URL HTTPS sûre.");
+	}
+	if (connector.allowedDomains.length === 0)
+		throw invalid("Le connecteur doit autoriser au moins un domaine.");
+	for (const domain of connector.allowedDomains) validateDomain(domain);
+	if (!connector.allowedDomains.includes(baseUrl.hostname.toLowerCase())) {
+		throw invalid("Le domaine de l’URL de base doit être explicitement autorisé.");
+	}
+	const endpointIdentifiers = new Set<string>();
+	for (const endpoint of connector.endpoints) {
+		validateIdentifier(endpoint.identifier, "endpoint de connecteur");
+		if (endpointIdentifiers.has(endpoint.identifier))
+			throw invalid("Un endpoint de connecteur est dupliqué.");
+		endpointIdentifiers.add(endpoint.identifier);
+		if (
+			!/^\/(?:[A-Za-z0-9._~-]+|:[a-z][a-z0-9]*)(?:\/(?:[A-Za-z0-9._~-]+|:[a-z][a-z0-9]*))*$/.test(
+				endpoint.path,
+			)
+		) {
+			throw invalid("Le chemin d’un endpoint de connecteur est invalide.");
+		}
+		if (
+			endpoint.successStatuses.length === 0 ||
+			endpoint.successStatuses.some(
+				(status) => !Number.isSafeInteger(status) || status < 200 || status > 399,
+			)
+		) {
+			throw invalid("Les statuts de succès du connecteur sont invalides.");
+		}
+		validatePositiveLimit(endpoint.maximumResponseBytes, 64 * 1024 * 1024, "taille de réponse");
+		validatePositiveLimit(endpoint.timeoutMs, 120_000, "délai");
+		validateNonNegativeLimit(endpoint.retries, 5, "nombre de nouvelles tentatives");
+		validateNonNegativeLimit(endpoint.cacheTtlSeconds, 86_400, "durée du cache");
+		if (endpoint.retries && endpoint.method !== "GET" && !endpoint.retrySafe) {
+			throw invalid(
+				"Un endpoint non idempotent doit confirmer que ses nouvelles tentatives sont sûres.",
+			);
+		}
+		for (const path of endpoint.response.requiredJsonPaths ?? []) validateJsonPath(path);
+		if (endpoint.response.format !== "json" && endpoint.response.requiredJsonPaths?.length) {
+			throw invalid("Les chemins de réponse ne sont utilisables qu’avec le format JSON.");
+		}
+		const parameters = new Set<string>();
+		for (const parameter of endpoint.parameters ?? []) {
+			validateIdentifier(parameter.name, "paramètre de connecteur");
+			if (parameters.has(parameter.name)) throw invalid("Un paramètre de connecteur est dupliqué.");
+			parameters.add(parameter.name);
+			if (
+				parameter.location === "header" &&
+				["authorization", "cookie", "host"].includes(parameter.name.toLowerCase())
+			) {
+				throw invalid("Cet en-tête est réservé au Core.");
+			}
+		}
+		for (const placeholder of endpoint.path.matchAll(/:([a-z][a-z0-9]*)/g)) {
+			if (
+				!endpoint.parameters?.some(
+					(parameter) =>
+						parameter.name === placeholder[1] &&
+						parameter.location === "path" &&
+						parameter.required,
+				)
+			) {
+				throw invalid("Chaque paramètre de chemin doit être déclaré comme obligatoire.");
+			}
+		}
+	}
+	if (!endpointIdentifiers.has(connector.connectionTestEndpoint)) {
+		throw invalid("L’endpoint de test de connexion est inconnu.");
+	}
+	validateAuthentication(connector.authentication, baseUrl, new Set(connector.allowedDomains));
+	validatePositiveLimit(connector.timeoutMs, 120_000, "délai global");
+	validateNonNegativeLimit(connector.retries, 5, "nouvelles tentatives globales");
+	validateNonNegativeLimit(connector.cacheTtlSeconds, 86_400, "cache global");
+	if (connector.quota) {
+		validatePositiveLimit(connector.quota.limit, 1_000_000, "quota");
+		validatePositiveLimit(connector.quota.windowSeconds, 86_400, "fenêtre de quota");
+	}
+}
+
+function validateAuthentication(
+	authentication: NonNullable<ContributionDefinition["connector"]>["authentication"],
+	baseUrl: URL,
+	allowedDomains: ReadonlySet<string>,
+): void {
+	if (authentication.kind === "none") return;
+	if (authentication.kind === "api-key") {
+		validateSecretReference(authentication.secretReference);
+		if (
+			!/^[A-Za-z][A-Za-z0-9-]{0,63}$/.test(authentication.header) ||
+			["cookie", "host"].includes(authentication.header.toLowerCase())
+		) {
+			throw invalid("L’en-tête de clé API est invalide.");
+		}
+		return;
+	}
+	if (authentication.kind === "basic") {
+		validateSecretReference(authentication.usernameSecretReference);
+		validateSecretReference(authentication.passwordSecretReference);
+		return;
+	}
+	if (authentication.kind === "bearer") {
+		validateSecretReference(authentication.secretReference);
+		return;
+	}
+	validateSecretReference(authentication.clientIdSecretReference);
+	if (authentication.clientSecretReference)
+		validateSecretReference(authentication.clientSecretReference);
+	validateEndpointReference(authentication.tokenEndpoint, "jeton OAuth");
+	if (authentication.flow === "client-credentials" && !authentication.clientSecretReference) {
+		throw invalid("Le flux Client Credentials exige un secret client.");
+	}
+	if (authentication.flow === "authorization-code-pkce" && !authentication.authorizationEndpoint) {
+		throw invalid("Le flux PKCE exige un endpoint d’autorisation.");
+	}
+	if (authentication.flow === "device-code" && !authentication.deviceAuthorizationEndpoint) {
+		throw invalid("Le flux Device Code exige son endpoint d’autorisation.");
+	}
+	if (authentication.authorizationEndpoint)
+		validateEndpointReference(authentication.authorizationEndpoint, "autorisation OAuth");
+	if (authentication.deviceAuthorizationEndpoint)
+		validateEndpointReference(authentication.deviceAuthorizationEndpoint, "Device Code");
+	for (const endpoint of [
+		authentication.tokenEndpoint,
+		authentication.authorizationEndpoint,
+		authentication.deviceAuthorizationEndpoint,
+	]) {
+		if (!endpoint) continue;
+		const url = new URL(endpoint, baseUrl);
+		if (!allowedDomains.has(url.hostname.toLowerCase())) {
+			throw invalid("Un endpoint OAuth utilise un domaine qui n’est pas autorisé.");
+		}
+	}
+	for (const path of [
+		authentication.accessTokenPath,
+		authentication.refreshTokenPath,
+		authentication.expiresInPath,
+	]) {
+		if (path) validateJsonPath(path);
+	}
+}
+
+function validateFrontendNetwork(
+	network: NonNullable<ContributionDefinition["frontendNetwork"]>,
+): void {
+	validateIdentifier(network.ownerIdentifier, "propriétaire réseau frontend");
+	if (network.domains.length === 0 || network.methods.length === 0) {
+		throw invalid("La politique réseau frontend doit déclarer des domaines et méthodes.");
+	}
+	for (const domain of network.domains) validateDomain(domain);
+}
+
+function validateSecretReference(reference: string): void {
+	if (!/^[a-z][a-z0-9-]{1,31}:[A-Za-z0-9_./-]{1,256}$/.test(reference)) {
+		throw invalid("Une référence de secret est invalide.");
+	}
+}
+
+function validateDomain(domain: string): void {
+	if (
+		domain !== domain.toLowerCase() ||
+		!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain) ||
+		domain.endsWith(".local")
+	) {
+		throw invalid("Un domaine déclaré est invalide.");
+	}
+}
+
+function validateEndpointReference(value: string, label: string): void {
+	if (
+		!/^\/[A-Za-z0-9._~:/-]+$/.test(value) &&
+		!/^https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~:/-]*)?$/.test(value)
+	) {
+		throw invalid(`L’endpoint ${label} est invalide.`);
+	}
+}
+
+function validateJsonPath(path: string): void {
+	if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) {
+		throw invalid("Un chemin JSON déclaré est invalide.");
+	}
+}
+
+function validatePositiveLimit(value: number | undefined, maximum: number, label: string): void {
+	if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > maximum)) {
+		throw invalid(`La ${label} du connecteur est invalide.`);
+	}
+}
+
+function validateNonNegativeLimit(value: number | undefined, maximum: number, label: string): void {
+	if (value !== undefined && (!Number.isSafeInteger(value) || value < 0 || value > maximum)) {
+		throw invalid(`La valeur ${label} du connecteur est invalide.`);
 	}
 }
 

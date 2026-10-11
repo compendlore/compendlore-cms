@@ -1,11 +1,17 @@
-import type { CoreJsonValue } from "../../core/src/index.js";
+import type {
+	ConnectorDefinition,
+	CoreJsonValue,
+	FrontendNetworkDefinition,
+} from "../../core/src/index.js";
 
 export type ContributionType =
 	| "api-endpoint"
 	| "configuration"
+	| "connector"
 	| "data-seed"
 	| "dimension"
 	| "event"
+	| "frontend-network"
 	| "method"
 	| "metric"
 	| "module"
@@ -111,6 +117,8 @@ export interface ContributionDefinition {
 	readonly replaces?: string;
 	readonly method?: MethodContractDefinition;
 	readonly endpoint?: ApiEndpointContractDefinition;
+	readonly connector?: ConnectorDefinition;
+	readonly frontendNetwork?: FrontendNetworkDefinition;
 	readonly payload?: CoreJsonValue;
 }
 

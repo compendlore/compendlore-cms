@@ -1,13 +1,16 @@
 export const foundation = Object.freeze({
 	packageName: "@compendlore/core",
-	status: "phase-3-core",
+	status: "operational",
 });
 
 export * from "./account-security.js";
 export * from "./bootstrap.js";
 export * from "./config.js";
+export * from "./connector-contracts.js";
+export * from "./connectors.js";
 export * from "./errors.js";
 export * from "./event-stream.js";
+export * from "./frontend-network.js";
 export * from "./installation.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";

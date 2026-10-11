@@ -1,7 +1,7 @@
 export const foundation = Object.freeze({
 	packageName: "@compendlore/cms-registry",
 	description: "Pont déclaratif entre le Core et les modules métier",
-	status: "phase-4-registry",
+	status: "operational",
 });
 
 export * from "./contracts.js";

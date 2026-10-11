@@ -17,8 +17,12 @@ export default tseslint.config(
 		...js.configs.recommended,
 		languageOptions: {
 			globals: {
+				Buffer: "readonly",
 				console: "readonly",
 				process: "readonly",
+				Response: "readonly",
+				setTimeout: "readonly",
+				URL: "readonly",
 			},
 		},
 		rules: {

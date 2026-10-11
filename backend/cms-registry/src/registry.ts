@@ -28,9 +28,11 @@ import {
 const contributionTypes: readonly ContributionType[] = [
 	"api-endpoint",
 	"configuration",
+	"connector",
 	"data-seed",
 	"dimension",
 	"event",
+	"frontend-network",
 	"method",
 	"metric",
 	"module",
@@ -531,6 +533,8 @@ function definitionFromStored(contribution: StoredContribution): ContributionDef
 		...(contribution.replaces ? { replaces: contribution.replaces } : {}),
 		...(contribution.method ? { method: contribution.method } : {}),
 		...(contribution.endpoint ? { endpoint: contribution.endpoint } : {}),
+		...(contribution.connector ? { connector: contribution.connector } : {}),
+		...(contribution.frontendNetwork ? { frontendNetwork: contribution.frontendNetwork } : {}),
 		...(contribution.payload !== undefined ? { payload: contribution.payload } : {}),
 	};
 }

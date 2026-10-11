@@ -2,15 +2,21 @@ import { api } from "encore.dev/api";
 
 export interface HealthResponse {
 	readonly status: "ok";
-	readonly core: "phase-3-core";
-	readonly gateway: "phase-6-api";
+	readonly components: {
+		readonly core: "operational";
+		readonly gateway: "operational";
+		readonly registry: "operational";
+	};
 }
 
 export const health = api(
 	{ expose: true, method: "GET", path: "/health" },
 	async (): Promise<HealthResponse> => ({
 		status: "ok",
-		core: "phase-3-core",
-		gateway: "phase-6-api",
+		components: {
+			core: "operational",
+			gateway: "operational",
+			registry: "operational",
+		},
 	}),
 );
