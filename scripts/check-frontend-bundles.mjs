@@ -32,6 +32,14 @@ const leakedScripts = [...administrationFiles].filter(
 if (leakedScripts.length)
 	throw new Error(`Le bundle public partage un script administratif : ${leakedScripts.join(", ")}`);
 
+const administrationDocument = await readFile(
+	join(process.cwd(), "frontend", "administration", "dist", "index.html"),
+	"utf8",
+);
+if (!administrationDocument.includes('src="/admin/assets/')) {
+	throw new Error("Le bundle administratif n’est pas construit pour la route /admin.");
+}
+
 console.log("Bundles frontend séparés, manifestes valides et sources maps absentes.");
 
 async function recursiveFiles(root, relative = "") {

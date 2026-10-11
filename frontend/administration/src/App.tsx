@@ -26,21 +26,21 @@ const registry = new FrontendModuleRegistry();
 registry.register({
 	identifier: "core.admin.dashboard",
 	kind: "route",
-	path: "/administration",
+	path: "/admin",
 	requiredCapability: "core.administration.access",
 	component: DashboardPage,
 });
 registry.register({
 	identifier: "core.admin.modules",
 	kind: "route",
-	path: "/administration/modules",
+	path: "/admin/modules",
 	requiredCapability: "core.administration.access",
 	component: ModulesPage,
 });
 registry.register({
 	identifier: "core.admin.interface",
 	kind: "route",
-	path: "/administration/interface",
+	path: "/admin/interface",
 	requiredCapability: "core.administration.access",
 	component: InterfacePage,
 });
@@ -65,7 +65,7 @@ administrationSidebarElements.register("core.administration", {
 	identifier: "core.administration.dashboard",
 	kind: "link",
 	label: "Pilotage",
-	href: "/administration",
+	href: "/admin",
 	icon: "administration",
 	description: "État du CMS",
 	order: 10,
@@ -74,7 +74,7 @@ administrationSidebarElements.register("core.administration", {
 	identifier: "core.administration.modules",
 	kind: "link",
 	label: "Modules",
-	href: "/administration/modules",
+	href: "/admin/modules",
 	icon: "menu",
 	description: "Contributions enregistrées",
 	order: 20,
@@ -83,7 +83,7 @@ administrationSidebarElements.register("core.administration", {
 	identifier: "core.administration.interface",
 	kind: "link",
 	label: "Interface",
-	href: "/administration/interface",
+	href: "/admin/interface",
 	icon: "settings",
 	description: "Composants du CMS",
 	order: 30,
@@ -91,7 +91,7 @@ administrationSidebarElements.register("core.administration", {
 
 export function App() {
 	const [path, setPath] = useState(() =>
-		window.location.pathname === "/" ? "/administration" : window.location.pathname,
+		window.location.pathname === "/admin/" ? "/admin" : window.location.pathname,
 	);
 	useEffect(() => {
 		const update = () => setPath(window.location.pathname);

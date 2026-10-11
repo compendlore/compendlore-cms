@@ -53,7 +53,7 @@ export function App() {
 					<Button aria-label="Compte utilisateur">
 						<Icon name="account" />
 					</Button>
-					<a className="button button--secondary" href="/administration">
+					<a className="button button--secondary" href="/admin">
 						<Icon name="administration" />
 						<span>Administration</span>
 					</a>
