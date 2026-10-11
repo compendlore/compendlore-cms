@@ -11,6 +11,9 @@
 			"path": "frontend/administration"
 		},
 		{
+			"path": "frontend/ui"
+		},
+		{
 			"path": "packages/addon-sdk-contracts"
 		}
 	]

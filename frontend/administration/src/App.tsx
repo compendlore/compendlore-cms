@@ -1,14 +1,242 @@
+import { useEffect, useState } from "react";
+import {
+	ApplicationShell,
+	Button,
+	Card,
+	DateTimePicker,
+	Field,
+	FrontendModuleRegistry,
+	Icon,
+	Modal,
+	ModuleOutlet,
+	Notice,
+	PageHeader,
+	SelectField,
+	Switch,
+	Table,
+	Tabs,
+	type FrontendModuleProps,
+} from "@compendlore/ui";
+
+const registry = new FrontendModuleRegistry();
+registry.register({
+	identifier: "core.admin.dashboard",
+	kind: "route",
+	path: "/administration",
+	requiredCapability: "core.administration.access",
+	component: DashboardPage,
+});
+registry.register({
+	identifier: "core.admin.modules",
+	kind: "route",
+	path: "/administration/modules",
+	requiredCapability: "core.administration.access",
+	component: ModulesPage,
+});
+registry.register({
+	identifier: "core.admin.interface",
+	kind: "route",
+	path: "/administration/interface",
+	requiredCapability: "core.administration.access",
+	component: InterfacePage,
+});
+const capabilities = new Set<string>(["core.administration.access"]);
+
 export function App() {
+	const [path, setPath] = useState(() =>
+		window.location.pathname === "/" ? "/administration" : window.location.pathname,
+	);
+	useEffect(() => {
+		const update = () => setPath(window.location.pathname);
+		window.addEventListener("popstate", update);
+		return () => window.removeEventListener("popstate", update);
+	}, []);
+	const navigate = (href: string) => {
+		window.history.pushState(null, "", href);
+		setPath(href);
+	};
+	const navigation = [
+		{
+			id: "dashboard",
+			label: "Pilotage",
+			href: "/administration",
+			icon: "administration" as const,
+			description: "État du CMS",
+			active: path === "/administration",
+		},
+		{
+			id: "modules",
+			label: "Modules",
+			href: "/administration/modules",
+			icon: "menu" as const,
+			description: "Contributions enregistrées",
+			active: path === "/administration/modules",
+		},
+		{
+			id: "interface",
+			label: "Interface",
+			href: "/administration/interface",
+			icon: "settings" as const,
+			description: "Composants du CMS",
+			active: path === "/administration/interface",
+		},
+	];
 	return (
-		<main className="cms-foundation">
-			<section className="cms-foundation__content">
-				<p className="cms-foundation__eyebrow">Administration sécurisée</p>
-				<h1 className="cms-foundation__title">Administration</h1>
-				<p className="cms-foundation__description">
-					Le bundle administratif React est séparé du site public. Sa livraison sera protégée par
-					les autorisations Core et le second facteur.
-				</p>
+		<ApplicationShell
+			administration
+			title="Administration"
+			subtitle="Accès protégé par rôle et second facteur"
+			navigation={navigation}
+			onNavigate={navigate}
+			actions={
+				<>
+					<a className="button" href="/">
+						<span>Voir le site</span>
+					</a>
+					<Button tone="danger" aria-label="Se déconnecter">
+						<Icon name="logout" />
+					</Button>
+				</>
+			}
+		>
+			<ModuleOutlet
+				contribution={registry.resolveRoute(path, capabilities)}
+				context={{ capabilities, locale: navigator.language || "fr-FR" }}
+				fallback={
+					<Notice tone="danger" title="Page administrative indisponible">
+						Cette route n’est pas enregistrée ou votre session ne possède plus la capacité requise.
+					</Notice>
+				}
+			/>
+		</ApplicationShell>
+	);
+}
+
+function DashboardPage(_props: FrontendModuleProps) {
+	return (
+		<>
+			<PageHeader
+				eyebrow="Administration · Pilotage"
+				title="Tableau de bord"
+				description="Le bundle administratif est construit et livré indépendamment du site public."
+			/>
+			<section className="content-grid">
+				<Card
+					eyebrow="Sécurité"
+					title="Accès vérifié"
+					description="La livraison nécessite un profil administrateur et une validation 2FA active."
+				/>
+				<Card
+					eyebrow="Registre"
+					title="Contributions"
+					description="Les pages administratives seront résolues depuis le CMS Registry."
+				/>
+				<Card
+					eyebrow="Build"
+					title="Bundle isolé"
+					description="Les sources maps de production sont désactivées et le manifeste est distinct."
+				/>
 			</section>
-		</main>
+		</>
+	);
+}
+
+function ModulesPage(_props: FrontendModuleProps) {
+	return (
+		<>
+			<PageHeader
+				eyebrow="Administration · Registre"
+				title="Modules frontend"
+				description="Prévisualisation de l’hôte qui recevra les contributions métier à la phase suivante."
+			/>
+			<Notice tone="information" title="Fondation prête">
+				Les contrats sont actifs. Le catalogue métier sera raccordé pendant le premier parcours
+				vertical.
+			</Notice>
+		</>
+	);
+}
+
+function InterfacePage(_props: FrontendModuleProps) {
+	const [enabled, setEnabled] = useState(true);
+	const [activeTab, setActiveTab] = useState("controls");
+	const [modalOpen, setModalOpen] = useState(false);
+	const [scheduledAt, setScheduledAt] = useState("");
+	return (
+		<>
+			<PageHeader
+				eyebrow="Administration · Interface"
+				title="Fondation visuelle"
+				description="Contrôlez les composants communs et leurs interactions avant leur utilisation par les parcours métier."
+			/>
+			<Tabs
+				activeId={activeTab}
+				onChange={setActiveTab}
+				tabs={[
+					{
+						id: "controls",
+						label: "Contrôles",
+						content: (
+							<section className="content-grid">
+								<Card title="Champs et actions" eyebrow="Formulaire">
+									<Field label="Nom du site" defaultValue="Compendlore CMS" />
+									<SelectField
+										label="Langue"
+										options={[
+											{ value: "fr-FR", label: "Français" },
+											{ value: "en-GB", label: "English" },
+										]}
+									/>
+									<Switch checked={enabled} label="Fonction active" onChange={setEnabled} />
+									<Button tone="primary" onClick={() => setModalOpen(true)}>
+										Ouvrir la fenêtre
+									</Button>
+								</Card>
+								<Card title="Planification" eyebrow="Date et heure">
+									<DateTimePicker locale="fr-FR" value={scheduledAt} onChange={setScheduledAt} />
+								</Card>
+							</section>
+						),
+					},
+					{
+						id: "data",
+						label: "Données",
+						content: (
+							<Table
+								caption="Exemple de tableau responsive"
+								columns={[
+									{ key: "name", title: "Nom", render: (row) => row.name },
+									{ key: "type", title: "Type", render: (row) => row.type },
+									{ key: "status", title: "État", render: (row) => row.status },
+								]}
+								rows={[
+									{ id: "site", name: "Site public", type: "Bundle", status: "Prêt" },
+									{
+										id: "administration",
+										name: "Administration",
+										type: "Bundle protégé",
+										status: "Prêt",
+									},
+								]}
+								rowKey={(row) => row.id}
+							/>
+						),
+					},
+				]}
+			/>
+			<Modal
+				open={modalOpen}
+				eyebrow="Composant"
+				title="Fenêtre de confirmation"
+				onClose={() => setModalOpen(false)}
+				actions={
+					<Button tone="primary" onClick={() => setModalOpen(false)}>
+						Confirmer
+					</Button>
+				}
+			>
+				Cette fenêtre vérifie le contraste, l’alignement et la fermeture par l’arrière-plan.
+			</Modal>
+		</>
 	);
 }

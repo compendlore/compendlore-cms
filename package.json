@@ -25,10 +25,11 @@
 		"test": "npm run build --silent && node --test",
 		"build": "tsc -b --pretty false && npm run build:frontend",
 		"build:frontend": "npm run build --workspace @compendlore/site && npm run build --workspace @compendlore/administration",
+		"bundles:check": "node scripts/check-frontend-bundles.mjs",
 		"deps:check": "node scripts/check-dependencies.mjs",
 		"layers:check": "node scripts/check-layers.mjs",
 		"audit": "npm audit --audit-level=moderate",
-		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build"
+		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build && npm run bundles:check"
 	},
 	"overrides": {
 		"katex": "0.18.2"

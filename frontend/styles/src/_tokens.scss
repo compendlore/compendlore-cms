@@ -1,11 +1,19 @@
-$color-background: #080d12;
-$color-surface: #111820;
-$color-surface-raised: #171f29;
-$color-border: #3d392c;
-$color-text: #f4ecdf;
-$color-text-muted: #938f87;
-$color-accent: #d8ad57;
-$font-display: Georgia, "Times New Roman", serif;
+$color-background: #090c10;
+$color-background-soft: #0c1014;
+$color-field: #090d11;
+$color-surface: #12171d;
+$color-surface-raised: #151b22;
+$color-border: rgb(224 196 135 / 16%);
+$color-border-strong: rgb(224 196 135 / 28%);
+$color-text: #e9e3d7;
+$color-text-strong: #f2eadc;
+$color-text-muted: #aaa69e;
+$color-text-dim: #777d7e;
+$color-accent: #d1a85a;
+$color-accent-soft: #f0d89a;
+$color-danger: #d36757;
+$color-success: #8fc29d;
+$font-display: "Cinzel", Georgia, "Times New Roman", serif;
 $font-interface:
 	Inter,
 	system-ui,
@@ -13,5 +21,8 @@ $font-interface:
 	BlinkMacSystemFont,
 	"Segoe UI",
 	sans-serif;
-$content-width: 72rem;
+$content-width: 90rem;
+$topbar-height: 4.75rem;
+$sidebar-width: 16.875rem;
 $space-unit: 0.5rem;
+$transition: 180ms ease;

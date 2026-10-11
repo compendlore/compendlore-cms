@@ -1,4 +1,5 @@
 @use "tokens" as tokens;
+@use "components";
 
 @mixin application-shell {
 	:root {
@@ -7,6 +8,20 @@
 		font-family: tokens.$font-interface;
 		font-synthesis: none;
 		text-rendering: optimizeLegibility;
+		--gold: #{tokens.$color-accent};
+		--gold-soft: #{tokens.$color-accent-soft};
+		--bg: #{tokens.$color-background};
+		--field: #{tokens.$color-field};
+		--panel: #{tokens.$color-surface};
+		--panel-soft: #{tokens.$color-surface-raised};
+		--line: #{tokens.$color-border};
+		--line-strong: #{tokens.$color-border-strong};
+		--text: #{tokens.$color-text};
+		--text-strong: #{tokens.$color-text-strong};
+		--text-muted: #{tokens.$color-text-muted};
+		--text-dim: #{tokens.$color-text-dim};
+		--danger: #{tokens.$color-danger};
+		--success: #{tokens.$color-success};
 	}
 
 	* {
@@ -18,7 +33,8 @@
 		min-height: 100vh;
 		margin: 0;
 		background:
-			radial-gradient(circle at 50% -20%, rgb(216 173 87 / 8%), transparent 40%),
+			radial-gradient(circle at 78% -10%, rgb(209 168 90 / 8%), transparent 32rem),
+			radial-gradient(circle at 10% 8%, rgb(78 107 120 / 8%), transparent 28rem),
 			tokens.$color-background;
 	}
 
@@ -68,4 +84,6 @@
 		font-size: clamp(1rem, 2vw, 1.35rem);
 		line-height: 1.65;
 	}
+
+	@include components.design-system;
 }

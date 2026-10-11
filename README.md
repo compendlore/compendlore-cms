@@ -7,8 +7,9 @@ des services Encore distincts ; le Core possède les accès aux infrastructures 
 
 ## Statut
 
-Core, CMS Registry, moteur déclaratif de schéma, passerelle API et connecteurs externes
-opérationnels. Aucun module historique non audité ni aucune logique métier ne sont présents.
+Core, CMS Registry, moteur déclaratif de schéma, passerelle API, connecteurs externes et fondation
+frontend opérationnels. Aucun module historique non audité ni aucune logique métier ne sont
+présents.
 
 Le contrat, la configuration et les limites du Core sont documentés dans
 [`docs/CORE.md`](docs/CORE.md).
@@ -25,6 +26,9 @@ Les audiences, contrats, contrôles et communications sont documentés dans
 Les contrats sortants, flux OAuth et règles réseau sont documentés dans
 [`docs/CONNECTORS.md`](docs/CONNECTORS.md).
 
+Le design system, les shells séparés et la livraison administrative sont documentés dans
+[`docs/FRONTEND_FOUNDATION.md`](docs/FRONTEND_FOUNDATION.md).
+
 La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 [`docs/TECHNOLOGY_STACK.md`](docs/TECHNOLOGY_STACK.md).
 
@@ -39,6 +43,7 @@ La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 - `npm run typecheck` : vérifie TypeScript en mode strict ;
 - `npm run test` : construit et exécute les tests ;
 - `npm run build` : produit un build local non versionné ;
+- `npm run bundles:check` : vérifie la séparation et la sûreté des bundles frontend ;
 - `npm run ci` : exécute tous les contrôles d'intégration.
 
 Les builds locaux, artefacts, secrets et données runtime sont exclus de Git.
