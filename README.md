@@ -29,6 +29,10 @@ Les contrats sortants, flux OAuth et règles réseau sont documentés dans
 Le design system, les shells séparés et la livraison administrative sont documentés dans
 [`docs/FRONTEND_FOUNDATION.md`](docs/FRONTEND_FOUNDATION.md).
 
+Les moteurs de navigation, de pages et de popups sont spécifiés dans
+[`docs/NAVIGATION_ENGINE.md`](docs/NAVIGATION_ENGINE.md),
+[`docs/PAGE_ENGINE.md`](docs/PAGE_ENGINE.md) et [`docs/POPUP_ENGINE.md`](docs/POPUP_ENGINE.md).
+
 La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 [`docs/TECHNOLOGY_STACK.md`](docs/TECHNOLOGY_STACK.md).
 
