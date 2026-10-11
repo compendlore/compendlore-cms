@@ -7,11 +7,15 @@ import {
 	Field,
 	FrontendModuleRegistry,
 	Icon,
+	MainNavigationRegistry,
 	Modal,
 	ModuleOutlet,
+	NavigationResolver,
 	Notice,
 	PageHeader,
 	SelectField,
+	SidebarElementRegistry,
+	SidebarRegistry,
 	Switch,
 	Table,
 	Tabs,
@@ -41,6 +45,49 @@ registry.register({
 	component: InterfacePage,
 });
 const capabilities = new Set<string>(["core.administration.access"]);
+const administrationSidebars = new SidebarRegistry();
+const administrationSidebarElements = new SidebarElementRegistry();
+const administrationNavigation = new NavigationResolver(
+	new MainNavigationRegistry(),
+	administrationSidebars,
+	administrationSidebarElements,
+);
+
+administrationSidebars.register({
+	identifier: "core.administration",
+	eyebrow: "Explorer",
+	title: "Administration",
+	subtitle: "Accès protégé par rôle et second facteur",
+	icon: "administration",
+	requiredCapability: "core.administration.access",
+});
+administrationSidebarElements.register("core.administration", {
+	identifier: "core.administration.dashboard",
+	kind: "link",
+	label: "Pilotage",
+	href: "/administration",
+	icon: "administration",
+	description: "État du CMS",
+	order: 10,
+});
+administrationSidebarElements.register("core.administration", {
+	identifier: "core.administration.modules",
+	kind: "link",
+	label: "Modules",
+	href: "/administration/modules",
+	icon: "menu",
+	description: "Contributions enregistrées",
+	order: 20,
+});
+administrationSidebarElements.register("core.administration", {
+	identifier: "core.administration.interface",
+	kind: "link",
+	label: "Interface",
+	href: "/administration/interface",
+	icon: "settings",
+	description: "Composants du CMS",
+	order: 30,
+});
 
 export function App() {
 	const [path, setPath] = useState(() =>
@@ -55,38 +102,15 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
-	const navigation = [
-		{
-			id: "dashboard",
-			label: "Pilotage",
-			href: "/administration",
-			icon: "administration" as const,
-			description: "État du CMS",
-			active: path === "/administration",
-		},
-		{
-			id: "modules",
-			label: "Modules",
-			href: "/administration/modules",
-			icon: "menu" as const,
-			description: "Contributions enregistrées",
-			active: path === "/administration/modules",
-		},
-		{
-			id: "interface",
-			label: "Interface",
-			href: "/administration/interface",
-			icon: "settings" as const,
-			description: "Composants du CMS",
-			active: path === "/administration/interface",
-		},
-	];
+	const sidebar = administrationNavigation.resolveSidebar(
+		"core.administration",
+		path,
+		capabilities,
+	);
 	return (
 		<ApplicationShell
 			administration
-			title="Administration"
-			subtitle="Accès protégé par rôle et second facteur"
-			navigation={navigation}
+			sidebar={sidebar}
 			onNavigate={navigate}
 			actions={
 				<>

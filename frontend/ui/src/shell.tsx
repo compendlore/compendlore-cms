@@ -1,20 +1,13 @@
 import type { ReactNode } from "react";
-import { Icon, type IconName } from "./icons.js";
+import { Icon } from "./icons.js";
+import type { NavigationLinkView, SidebarElementView, SidebarView } from "./navigation.js";
 
-export interface NavigationItem {
-	readonly id: string;
-	readonly label: string;
-	readonly href: string;
-	readonly icon?: IconName;
-	readonly description?: string;
-	readonly active?: boolean;
-}
+export type NavigationItem = NavigationLinkView;
 
 export interface ApplicationShellProps {
 	readonly administration?: boolean;
-	readonly title: string;
-	readonly subtitle?: string;
-	readonly navigation: readonly NavigationItem[];
+	readonly primaryNavigation?: readonly NavigationItem[];
+	readonly sidebar?: SidebarView | undefined;
 	readonly actions?: ReactNode;
 	readonly children: ReactNode;
 	readonly onNavigate?: ((href: string) => void) | undefined;
@@ -22,16 +15,15 @@ export interface ApplicationShellProps {
 
 export function ApplicationShell({
 	administration = false,
-	title,
-	subtitle,
-	navigation,
+	primaryNavigation = [],
+	sidebar,
 	actions,
 	children,
 	onNavigate,
 }: ApplicationShellProps) {
 	return (
 		<div
-			className={`application-shell ${administration ? "application-shell--administration" : ""}`}
+			className={`application-shell ${administration ? "application-shell--administration" : ""} ${sidebar ? "" : "application-shell--without-sidebar"}`.trim()}
 		>
 			<header className="topbar">
 				<a
@@ -49,28 +41,66 @@ export function ApplicationShell({
 					<span>Lore &amp; Dice CMS</span>
 				</a>
 				<nav className="topbar__navigation" aria-label="Navigation principale">
-					{navigation.slice(0, 4).map((item) => (
+					{primaryNavigation.map((item) => (
 						<NavigationLink key={item.id} item={item} onNavigate={onNavigate} />
 					))}
 				</nav>
 				<div className="topbar__actions">{actions}</div>
 			</header>
-			<aside className="sidebar">
-				<p className="eyebrow">{administration ? "Administration" : "Explorer"}</p>
-				<div className="sidebar__heading">
-					<h2>{title}</h2>
-					{administration ? <Icon name="administration" /> : null}
-				</div>
-				{subtitle ? <p className="sidebar__subtitle">{subtitle}</p> : null}
-				<nav aria-label={administration ? "Navigation administrative" : "Navigation du site"}>
-					{navigation.map((item) => (
-						<NavigationLink key={item.id} item={item} onNavigate={onNavigate} />
-					))}
-				</nav>
-			</aside>
+			{sidebar ? (
+				<aside className="sidebar">
+					{sidebar.eyebrow ? <p className="eyebrow">{sidebar.eyebrow}</p> : null}
+					<div className="sidebar__heading">
+						<h2>{sidebar.title}</h2>
+						{sidebar.icon ? <Icon name={sidebar.icon} /> : null}
+					</div>
+					{sidebar.subtitle ? <p className="sidebar__subtitle">{sidebar.subtitle}</p> : null}
+					<nav aria-label={administration ? "Navigation administrative" : "Navigation du site"}>
+						{sidebar.items.map((item) => (
+							<SidebarElement key={item.id} item={item} onNavigate={onNavigate} />
+						))}
+					</nav>
+				</aside>
+			) : null}
 			<main className="page-content">
 				<div className="content-wrap">{children}</div>
 			</main>
+		</div>
+	);
+}
+
+function SidebarElement({
+	item,
+	onNavigate,
+}: {
+	readonly item: SidebarElementView;
+	readonly onNavigate?: ((href: string) => void) | undefined;
+}) {
+	if (item.kind === "category") {
+		return (
+			<details className="sidebar__category" open={item.initiallyExpanded}>
+				<summary title={item.description}>
+					{item.icon ? <Icon name={item.icon} size={18} /> : null}
+					<strong>{item.label}</strong>
+				</summary>
+				<div className="sidebar__children">
+					{item.children.map((child) => (
+						<SidebarElement key={child.id} item={child} onNavigate={onNavigate} />
+					))}
+				</div>
+			</details>
+		);
+	}
+	return (
+		<div className="sidebar__link-group">
+			<NavigationLink item={item} onNavigate={onNavigate} />
+			{item.children.length ? (
+				<div className="sidebar__children">
+					{item.children.map((child) => (
+						<SidebarElement key={child.id} item={child} onNavigate={onNavigate} />
+					))}
+				</div>
+			) : null}
 		</div>
 	);
 }

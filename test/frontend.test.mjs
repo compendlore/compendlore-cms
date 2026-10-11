@@ -14,9 +14,13 @@ import {
 	Card,
 	DateTimePicker,
 	FrontendModuleRegistry,
+	MainNavigationRegistry,
 	ModuleOutlet,
+	NavigationResolver,
 	Notice,
 	PageHeader,
+	SidebarElementRegistry,
+	SidebarRegistry,
 	Switch,
 	Tabs,
 } from "../frontend/ui/build/types/index.js";
@@ -95,11 +99,68 @@ test("résout uniquement les contributions frontend autorisées", () => {
 	assert.match(fallback, /données locales sont conservées/i);
 });
 
+test("compose séparément barre principale, sidebar et éléments", () => {
+	const mainNavigation = new MainNavigationRegistry();
+	const sidebars = new SidebarRegistry();
+	const elements = new SidebarElementRegistry();
+	const resolver = new NavigationResolver(mainNavigation, sidebars, elements);
+
+	mainNavigation.register({
+		identifier: "core.home",
+		label: "Accueil",
+		href: "/",
+		visibility: "hidden",
+		systemRole: "home",
+	});
+	assert.deepEqual(resolver.resolve("/", new Set()), { mainLinks: [] });
+	mainNavigation.register({
+		identifier: "site.worlds",
+		label: "Univers",
+		href: "/worlds",
+		sidebarIdentifier: "site.worlds.sidebar",
+	});
+	sidebars.register({ identifier: "site.worlds.sidebar", title: "Univers" });
+	elements.register("site.worlds.sidebar", {
+		identifier: "site.worlds.category",
+		kind: "category",
+		label: "Mes univers",
+		order: 10,
+	});
+	elements.register("site.worlds.sidebar", {
+		identifier: "site.worlds.create",
+		kind: "link",
+		label: "Nouvel univers",
+		href: "/worlds/new",
+		parentIdentifier: "site.worlds.category",
+		order: 10,
+	});
+
+	const home = resolver.resolve("/", new Set());
+	assert.equal(home.mainLinks.length, 1);
+	assert.equal(home.mainLinks[0].active, false);
+	assert.equal(home.sidebar, undefined);
+	const worlds = resolver.resolve("/worlds", new Set());
+	assert.equal(worlds.mainLinks[0].active, true);
+	assert.equal(worlds.sidebar?.id, "site.worlds.sidebar");
+	assert.equal(worlds.sidebar?.items[0].kind, "category");
+	assert.equal(worlds.sidebar?.items[0].children[0].id, "site.worlds.create");
+	assert.throws(
+		() =>
+			mainNavigation.register({
+				identifier: "other.home",
+				label: "Autre accueil",
+				href: "/",
+				visibility: "hidden",
+				systemRole: "home",
+			}),
+		/existe déjà/i,
+	);
+});
+
 test("conserve le contrat visuel et accessible du design system", async () => {
 	const markup = renderToStaticMarkup(
 		createElement(ApplicationShell, {
-			title: "Explorer",
-			navigation: [{ id: "home", label: "Accueil", href: "/", active: true }],
+			primaryNavigation: [{ id: "worlds", label: "Univers", href: "/worlds", active: true }],
 			actions: createElement(Button, { tone: "primary" }, "Action"),
 			children: createElement(
 				"div",
@@ -136,5 +197,5 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 	assert.match(styles, /max-width: 52rem/);
 	assert.match(styles, /touch-action: none/);
 	const fingerprint = createHash("sha256").update(markup).update(styles).digest("hex");
-	assert.equal(fingerprint, "e117528f214adab309bdc48b5974c785188ae521d8ef3dd9954fc02a73c288d1");
+	assert.equal(fingerprint, "39eedc5336ec7e8dc995e0c32d6c0cb890f7e31d69fb764f14876f882f0d047c");
 });

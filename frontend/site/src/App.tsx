@@ -5,20 +5,31 @@ import {
 	Card,
 	FrontendModuleRegistry,
 	Icon,
+	MainNavigationRegistry,
 	ModuleOutlet,
+	NavigationResolver,
 	PageHeader,
+	SidebarElementRegistry,
+	SidebarRegistry,
 	type FrontendModuleProps,
 } from "@compendlore/ui";
 
 const registry = new FrontendModuleRegistry();
 registry.register({ identifier: "core.home", kind: "route", path: "/", component: HomePage });
-registry.register({
-	identifier: "core.modules",
-	kind: "route",
-	path: "/modules",
-	component: ModulesPage,
-});
 const capabilities = new Set<string>(["core.site.view"]);
+const mainNavigation = new MainNavigationRegistry();
+mainNavigation.register({
+	identifier: "core.home",
+	label: "Accueil",
+	href: "/",
+	visibility: "hidden",
+	systemRole: "home",
+});
+const navigationResolver = new NavigationResolver(
+	mainNavigation,
+	new SidebarRegistry(),
+	new SidebarElementRegistry(),
+);
 
 export function App() {
 	const [path, setPath] = useState(() => window.location.pathname);
@@ -31,27 +42,11 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
-	const navigation = [
-		{
-			id: "home",
-			label: "Accueil",
-			href: "/",
-			description: "Portail public",
-			active: path === "/",
-		},
-		{
-			id: "modules",
-			label: "Modules",
-			href: "/modules",
-			description: "Contenus disponibles",
-			active: path === "/modules",
-		},
-	] as const;
+	const navigation = navigationResolver.resolve(path, capabilities);
 	return (
 		<ApplicationShell
-			title="Explorer"
-			subtitle="Univers, pages et outils autorisés"
-			navigation={navigation}
+			primaryNavigation={navigation.mainLinks}
+			sidebar={navigation.sidebar}
 			onNavigate={navigate}
 			actions={
 				<>
@@ -98,26 +93,6 @@ function HomePage(_props: FrontendModuleProps) {
 					description="Une contribution indisponible est isolée afin que le reste du site continue de fonctionner."
 				/>
 			</section>
-		</>
-	);
-}
-
-function ModulesPage(_props: FrontendModuleProps) {
-	return (
-		<>
-			<PageHeader
-				eyebrow="Registre frontend"
-				title="Modules disponibles"
-				description="Ce shell résout les contributions autorisées sans connaître leur implémentation métier."
-			/>
-			<div className="content-grid">
-				<Card title="Pages" description="Routes et pages déclarées par le site ou les addons." />
-				<Card title="Composants" description="Blocs réutilisables soumis aux capacités frontend." />
-				<Card
-					title="Formulaires"
-					description="Interfaces déclaratives conservant leurs données en cas d’indisponibilité."
-				/>
-			</div>
 		</>
 	);
 }
