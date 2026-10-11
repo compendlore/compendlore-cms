@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createServer } from "vite";
 import {
 	AdministrationAssetAccessError,
 	AdministrationBundleDelivery,
@@ -24,6 +26,33 @@ import {
 	Switch,
 	Tabs,
 } from "../frontend/ui/build/types/index.js";
+
+test("sert le site et l’administration depuis un seul serveur de développement", async () => {
+	const server = await createServer({
+		configFile: fileURLToPath(new URL("../frontend/site/vite.config.ts", import.meta.url)),
+		logLevel: "silent",
+		root: fileURLToPath(new URL("../frontend/site", import.meta.url)),
+		server: { host: "127.0.0.1", port: 0, strictPort: true },
+	});
+	await server.listen();
+	try {
+		const address = server.httpServer?.address();
+		assert.ok(address && typeof address === "object");
+		const origin = `http://127.0.0.1:${address.port}`;
+		const site = await globalThis.fetch(`${origin}/`, { headers: { accept: "text/html" } });
+		const administration = await globalThis.fetch(`${origin}/admin`, {
+			headers: { accept: "text/html" },
+		});
+		assert.equal(site.status, 200);
+		assert.match(await site.text(), /<title>Lore &amp; Dice CMS<\/title>/);
+		assert.equal(administration.status, 200);
+		const administrationDocument = await administration.text();
+		assert.match(administrationDocument, /<title>Administration — Lore &amp; Dice CMS<\/title>/);
+		assert.match(administrationDocument, /\/administration\/src\/main\.tsx/);
+	} finally {
+		await server.close();
+	}
+});
 
 test("refuse tout asset administratif avant rôle et second facteur", async () => {
 	let reads = 0;

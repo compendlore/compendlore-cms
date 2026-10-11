@@ -99,6 +99,10 @@ export function App() {
 		return () => window.removeEventListener("popstate", update);
 	}, []);
 	const navigate = (href: string) => {
+		if (!/^\/admin(?:\/|$)/.test(href)) {
+			window.location.assign(href);
+			return;
+		}
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};

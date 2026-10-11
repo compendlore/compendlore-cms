@@ -35,8 +35,8 @@ La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 ## Commandes
 
 - `npm run dev:backend` : démarre Encore.ts sur le port 4000 ;
-- `npm run dev:site` : démarre le point d'entrée frontend sur le port 5173 ;
-- `npm run dev:administration` : démarre l'administration interne sur `127.0.0.1:5174` ;
+- `npm run dev:site` : démarre le site et l'administration sur le port 5173 ;
+- `npm run dev:administration` : alias du serveur frontend unique ;
 - `npm run check:backend` : analyse le graphe de l'application Encore.ts ;
 - `npm run pretty` : formate le dépôt ;
 - `npm run lint` : vérifie le code et la documentation ;
@@ -48,9 +48,9 @@ La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
 
 Les builds locaux, artefacts, secrets et données runtime sont exclus de Git.
 
-En développement, le navigateur utilise une seule origine : le site est disponible sur `/` et
-l'administration sur `/admin`, tous deux via le port 5173. Le port 5174 est exclusivement un détail
-interne du relais Vite et n'est pas exposé sur le réseau.
+En développement, un seul serveur Vite est lancé. Le site est disponible sur `/` et l'administration
+sur `/admin`, tous deux via le port 5173. Les applications conservent néanmoins des points d'entrée
+et des builds de production distincts.
 
 ## Docker
 
