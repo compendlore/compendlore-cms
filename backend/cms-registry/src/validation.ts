@@ -44,6 +44,12 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 	if (definition.type !== "method" && definition.method) {
 		throw invalid("Un contrat de méthode ne peut appartenir qu’à une méthode.");
 	}
+	if (definition.type === "api-endpoint" && !definition.endpoint) {
+		throw invalid("Une contribution d’API doit déclarer son contrat d’endpoint.");
+	}
+	if (definition.type !== "api-endpoint" && definition.endpoint) {
+		throw invalid("Un contrat d’endpoint ne peut appartenir qu’à une contribution d’API.");
+	}
 	if (definition.method) {
 		if (definition.method.timeoutMs < 1 || definition.method.timeoutMs > 120_000) {
 			throw invalid("Le délai d’une méthode doit être compris entre 1 ms et 120 secondes.");
@@ -52,6 +58,7 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 			validateIdentifier(definition.method.requiredCapability, "permission de méthode");
 		}
 	}
+	if (definition.endpoint) validateEndpoint(definition.endpoint);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);
@@ -59,6 +66,96 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		validateIdentifier(definition.replaces, "remplacement");
 		if (definition.replacementPolicy !== "explicit") {
 			throw invalid("Un remplacement doit utiliser la politique explicite.");
+		}
+	}
+}
+
+function validateEndpoint(endpoint: NonNullable<ContributionDefinition["endpoint"]>): void {
+	if (
+		!/^\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*)(?:\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*))*$/.test(
+			endpoint.route,
+		)
+	) {
+		throw invalid("La route d’API déclarée est invalide.");
+	}
+	if (!semverPattern.test(endpoint.contractVersion)) {
+		throw invalid("La version du contrat d’API doit respecter SemVer.");
+	}
+	validateIdentifier(endpoint.businessMethodIdentifier, "méthode métier d’API");
+	if (endpoint.requiredCapability) {
+		validateIdentifier(endpoint.requiredCapability, "permission d’API");
+	}
+	if (endpoint.quota) {
+		if (
+			!Number.isSafeInteger(endpoint.quota.limit) ||
+			endpoint.quota.limit < 1 ||
+			endpoint.quota.limit > 1_000_000 ||
+			!Number.isSafeInteger(endpoint.quota.windowSeconds) ||
+			endpoint.quota.windowSeconds < 1 ||
+			endpoint.quota.windowSeconds > 86_400
+		) {
+			throw invalid("Le quota d’API est invalide.");
+		}
+	}
+	validateApiSchema(endpoint.input, 0);
+	validateApiSchema(endpoint.output, 0);
+	const errorCodes = new Set<string>();
+	for (const error of endpoint.publicErrors ?? []) {
+		validateIdentifier(error.code, "erreur publique");
+		if (errorCodes.has(error.code))
+			throw invalid("Une erreur publique est déclarée plusieurs fois.");
+		errorCodes.add(error.code);
+		if (
+			!Number.isSafeInteger(error.httpStatus) ||
+			error.httpStatus < 400 ||
+			error.httpStatus > 599
+		) {
+			throw invalid("Le statut HTTP d’une erreur publique est invalide.");
+		}
+		if (Object.keys(error.message).length === 0) {
+			throw invalid("Une erreur publique doit posséder un message traduit.");
+		}
+		validateLocalizedText(error.message);
+	}
+}
+
+function validateApiSchema(
+	schema: NonNullable<ContributionDefinition["endpoint"]>["input"],
+	depth: number,
+): void {
+	if (depth > 12) throw invalid("Le schéma d’API est trop imbriqué.");
+	if ("maximumLength" in schema && schema.maximumLength !== undefined) {
+		if (
+			schema.type !== "string" ||
+			!Number.isSafeInteger(schema.maximumLength) ||
+			schema.maximumLength < 1 ||
+			schema.maximumLength > 1_048_576
+		) {
+			throw invalid("La longueur maximale du schéma d’API est invalide.");
+		}
+	}
+	if (schema.type === "array") {
+		if (
+			schema.maximumItems !== undefined &&
+			(!Number.isSafeInteger(schema.maximumItems) ||
+				schema.maximumItems < 1 ||
+				schema.maximumItems > 10_000)
+		) {
+			throw invalid("La taille maximale du tableau d’API est invalide.");
+		}
+		validateApiSchema(schema.items, depth + 1);
+	}
+	if (schema.type === "object") {
+		const properties = Object.keys(schema.properties);
+		if (properties.length > 256) throw invalid("Le schéma d’objet d’API possède trop de champs.");
+		for (const [key, child] of Object.entries(schema.properties)) {
+			validateIdentifier(key, "champ d’API");
+			validateApiSchema(child, depth + 1);
+		}
+		for (const required of schema.required ?? []) {
+			if (!Object.hasOwn(schema.properties, required)) {
+				throw invalid("Un champ obligatoire d’API n’est pas déclaré.");
+			}
 		}
 	}
 }

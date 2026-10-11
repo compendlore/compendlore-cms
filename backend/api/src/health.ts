@@ -3,6 +3,7 @@ import { api } from "encore.dev/api";
 export interface HealthResponse {
 	readonly status: "ok";
 	readonly core: "phase-3-core";
+	readonly gateway: "phase-6-api";
 }
 
 export const health = api(
@@ -10,5 +11,6 @@ export const health = api(
 	async (): Promise<HealthResponse> => ({
 		status: "ok",
 		core: "phase-3-core",
+		gateway: "phase-6-api",
 	}),
 );

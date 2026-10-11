@@ -9,3 +9,6 @@ export const foundation: FoundationIdentity = Object.freeze({
 	description: "Façade API du CMS",
 	status: "foundation",
 });
+
+export * from "./gateway.js";
+export * from "./realtime.js";

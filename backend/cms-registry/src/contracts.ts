@@ -1,6 +1,7 @@
 import type { CoreJsonValue } from "../../core/src/index.js";
 
 export type ContributionType =
+	| "api-endpoint"
 	| "configuration"
 	| "data-seed"
 	| "dimension"
@@ -54,6 +55,48 @@ export interface MethodContractDefinition {
 	readonly idempotent: boolean;
 }
 
+export type ApiAudience = "internal" | "public" | "site";
+export type ApiHttpMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+
+export type ApiValueSchema =
+	| {
+			readonly type: "array";
+			readonly items: ApiValueSchema;
+			readonly maximumItems?: number;
+	  }
+	| {
+			readonly type: "boolean" | "null" | "number" | "string";
+			readonly maximumLength?: number;
+	  }
+	| {
+			readonly type: "object";
+			readonly properties: Readonly<Record<string, ApiValueSchema>>;
+			readonly required?: readonly string[];
+			readonly additionalProperties?: boolean;
+	  };
+
+export interface ApiPublicErrorDefinition {
+	readonly code: string;
+	readonly httpStatus: number;
+	readonly message: Readonly<Record<string, string>>;
+}
+
+export interface ApiEndpointContractDefinition {
+	readonly audience: ApiAudience;
+	readonly method: ApiHttpMethod;
+	readonly route: string;
+	readonly contractVersion: string;
+	readonly businessMethodIdentifier: string;
+	readonly requiredCapability?: string;
+	readonly input: ApiValueSchema;
+	readonly output: ApiValueSchema;
+	readonly publicErrors?: readonly ApiPublicErrorDefinition[];
+	readonly quota?: {
+		readonly limit: number;
+		readonly windowSeconds: number;
+	};
+}
+
 export interface ContributionDefinition {
 	readonly identifier: string;
 	readonly type: ContributionType;
@@ -67,6 +110,7 @@ export interface ContributionDefinition {
 	readonly replacementPolicy?: ReplacementPolicy;
 	readonly replaces?: string;
 	readonly method?: MethodContractDefinition;
+	readonly endpoint?: ApiEndpointContractDefinition;
 	readonly payload?: CoreJsonValue;
 }
 

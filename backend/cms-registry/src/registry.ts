@@ -26,6 +26,7 @@ import {
 } from "./validation.js";
 
 const contributionTypes: readonly ContributionType[] = [
+	"api-endpoint",
 	"configuration",
 	"data-seed",
 	"dimension",
@@ -529,6 +530,7 @@ function definitionFromStored(contribution: StoredContribution): ContributionDef
 			: {}),
 		...(contribution.replaces ? { replaces: contribution.replaces } : {}),
 		...(contribution.method ? { method: contribution.method } : {}),
+		...(contribution.endpoint ? { endpoint: contribution.endpoint } : {}),
 		...(contribution.payload !== undefined ? { payload: contribution.payload } : {}),
 	};
 }
