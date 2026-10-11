@@ -11,6 +11,10 @@ Core, CMS Registry, moteur déclaratif de schéma, passerelle API, connecteurs e
 frontend opérationnels. Aucun module historique non audité ni aucune logique métier ne sont
 présents.
 
+La carte canonique des systèmes, de leurs propriétaires, de leurs frontières et de leur état est
+disponible dans [`docs/SYSTEMS.md`](docs/SYSTEMS.md). Une fiche technique dédiée y est référencée
+pour chaque système opérationnel, spécifié ou planifié.
+
 Le contrat, la configuration et les limites du Core sont documentés dans
 [`docs/CORE.md`](docs/CORE.md).
 
