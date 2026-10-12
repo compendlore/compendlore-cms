@@ -18,6 +18,8 @@ until the release manager assigns a version and publication date.
 - Added Docker deployment support and reproducible repository quality checks.
 - Added the bilingual community code of conduct, governance policy, and trademark policy from the
   repository’s initial revision.
+- Added fail-closed security policy resolution, Ed25519 instance identity, reliable outbox dispatch,
+  typed theme contracts, and automated dependency maintenance.
 
 ### Changed
 
