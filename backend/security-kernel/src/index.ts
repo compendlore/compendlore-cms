@@ -4,4 +4,6 @@ export const foundation = Object.freeze({
 });
 
 export * from "./file-analysis.js";
+export * from "./instance-identity.js";
 export * from "./kernel.js";
+export * from "./policy-runtime.js";
