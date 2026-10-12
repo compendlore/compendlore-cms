@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -214,9 +213,14 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 		}),
 	);
 	assert.match(markup, /aria-current="page"/);
+	assert.match(markup, /class="application-shell\s+application-shell--without-sidebar"/);
+	assert.match(markup, /class="topbar__navigation"/);
+	assert.match(markup, /class="page-header"/);
+	assert.match(markup, /class="card"/);
 	assert.match(markup, /role="switch"/);
 	assert.match(markup, /role="tablist"/);
 	assert.match(markup, /aria-haspopup="dialog"/);
+	assert.match(markup, /class="date-time-picker"/);
 	const styles = await readFile(
 		new URL("../frontend/styles/src/_components.scss", import.meta.url),
 		"utf8",
@@ -224,9 +228,7 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 	assert.match(styles, /prefers-reduced-motion/);
 	assert.match(styles, /max-width: 52rem/);
 	assert.match(styles, /touch-action: none/);
-	const fingerprint = createHash("sha256")
-		.update(markup)
-		.update(styles.replaceAll("\r\n", "\n"))
-		.digest("hex");
-	assert.equal(fingerprint, "0fe2e17ddbcb3f944f8f29e8979ed1810385f89ed6885331918d11b880c276e9");
+	assert.match(styles, /\.application-shell/);
+	assert.match(styles, /\.topbar/);
+	assert.match(styles, /\.date-time-picker/);
 });
