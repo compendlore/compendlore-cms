@@ -250,3 +250,31 @@ test("la migration du moteur de schéma ne crée que le journal Core et le sché
 	assert.doesNotMatch(migration, /CREATE TABLE IF NOT EXISTS cms_data\./);
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
 });
+
+test("la fondation de messagerie Core est additive et couvre les états persistants", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/006_core_messaging.up.sql", import.meta.url),
+		"utf8",
+	);
+	for (const table of [
+		"messaging_topics",
+		"messaging_topic_versions",
+		"messaging_messages",
+		"messaging_audiences",
+		"messaging_recipients",
+		"messaging_outbox",
+		"messaging_deliveries",
+		"messaging_delivery_attempts",
+		"messaging_acknowledgements",
+		"messaging_dead_letters",
+		"messaging_cursors",
+		"notifications",
+		"notification_user_states",
+		"notification_preferences",
+		"messaging_subscriptions",
+		"messaging_presence",
+	]) {
+		assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS core\\.${table}\\b`));
+	}
+	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
+});
