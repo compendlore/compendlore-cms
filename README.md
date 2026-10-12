@@ -1,42 +1,54 @@
 # compendlore-cms
 
+## English
+
+Compendlore CMS foundation: Core, CMS Registry, versioned API, public site, and separately delivered
+administration interface. `backend/` is the Encore application root. Protected infrastructure is
+owned by the Core; native business modules and future addons contribute through the Registry.
+
+### Status
+
+The Core, Registry, declarative schema engine, API gateway, external connectors, Security Kernel,
+and frontend foundation are operational. Historical modules are not imported without an explicit
+audit. Architecture and planning documents are maintained in the workspace documentation tree.
+
+### Commands
+
+- `npm run dev:backend`: start Encore on port 4000;
+- `npm run dev:site`: serve the public site and administration through port 5173;
+- `npm run check:backend`: validate the Encore application graph;
+- `npm run pretty`: format the repository;
+- `npm run lint`: check code and repository documentation;
+- `npm run typecheck`: run strict TypeScript checks;
+- `npm run test`: build and execute tests;
+- `npm run build`: produce a non-versioned local build;
+- `npm run ci`: run the complete integration checks.
+
+Local builds, artifacts, secrets, runtime data, and workspace documentation are excluded from this
+repository. In development, `/` serves the public site and `/admin` serves the protected interface
+from one Vite server. Production bundles remain separate.
+
+### Docker
+
+The `Dockerfile` provides `site`, `administration`, and `quality` targets. The Encore backend image
+is produced with the official `encore build docker` workflow. Workspace orchestration and local
+environment generation are managed from the workspace root.
+
+## Français
+
 Socle du CMS Compendlore : Core, CMS Registry, API et interfaces séparées.
 
 Le dossier `backend/` est la racine de l'application Encore. `core`, `cms-registry` et `api` sont
 des services Encore distincts ; le Core possède les accès aux infrastructures protégées.
 
-## Statut
+### Statut
 
 Core, CMS Registry, moteur déclaratif de schéma, passerelle API, connecteurs externes et fondation
 frontend opérationnels. Aucun module historique non audité ni aucune logique métier ne sont
-présents.
+présents. La documentation d’architecture et de planification est maintenue dans l’arborescence
+documentaire du workspace.
 
-Le contrat, la configuration et les limites du Core sont documentés dans
-[`docs/CORE.md`](docs/CORE.md).
-
-Le modèle déclaratif, le cycle de vie et la frontière du Registry sont documentés dans
-[`docs/CMS_REGISTRY.md`](docs/CMS_REGISTRY.md).
-
-Le DSL de tables, la planification et les garanties d'exécution sont documentés dans
-[`docs/SCHEMA_ENGINE.md`](docs/SCHEMA_ENGINE.md).
-
-Les audiences, contrats, contrôles et communications sont documentés dans
-[`docs/API_GATEWAY.md`](docs/API_GATEWAY.md).
-
-Les contrats sortants, flux OAuth et règles réseau sont documentés dans
-[`docs/CONNECTORS.md`](docs/CONNECTORS.md).
-
-Le design system, les shells séparés et la livraison administrative sont documentés dans
-[`docs/FRONTEND_FOUNDATION.md`](docs/FRONTEND_FOUNDATION.md).
-
-Les moteurs de navigation, de pages et de popups sont spécifiés dans
-[`docs/NAVIGATION_ENGINE.md`](docs/NAVIGATION_ENGINE.md),
-[`docs/PAGE_ENGINE.md`](docs/PAGE_ENGINE.md) et [`docs/POPUP_ENGINE.md`](docs/POPUP_ENGINE.md).
-
-La stack cible React, Encore.ts, Sass/SCSS et TypeScript 6 est définie dans
-[`docs/TECHNOLOGY_STACK.md`](docs/TECHNOLOGY_STACK.md).
-
-## Commandes
+### Commandes
 
 - `npm run dev:backend` : démarre Encore.ts sur le port 4000 ;
 - `npm run dev:site` : démarre le site et l'administration sur le port 5173 ;
@@ -56,7 +68,7 @@ En développement, un seul serveur Vite est lancé. Le site est disponible sur `
 sur `/admin`, tous deux via le port 5173. Les applications conservent néanmoins des points d'entrée
 et des builds de production distincts.
 
-## Docker
+### Docker
 
 Le `Dockerfile` fournit trois cibles : `site`, `administration` et `quality`. Le backend Encore
 n'utilise pas un Dockerfile artisanal : son image est produite par la commande officielle

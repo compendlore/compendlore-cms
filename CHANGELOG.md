@@ -1,3 +1,38 @@
 # Changelog
 
-Aucune version publiée.
+All notable changes to Compendlore CMS are recorded in this file. Entries remain under `Unreleased`
+until the release manager assigns a version and publication date.
+
+## [Unreleased]
+
+### Added
+
+- Established the Encore.ts backend, React frontends, TypeScript 6 workspaces, and shared Sass
+  presentation foundation.
+- Added the Core security foundation, durable extension event stream, private security kernel,
+  protected installation flow, and Core-owned persistence.
+- Added the CMS Registry contribution contracts, declarative schema engine, statistics contracts,
+  messaging contracts, and persistent messaging schema.
+- Added the API gateway, real-time communication contracts, secure external connectors, and separate
+  public and administrative frontend entry points on one development origin.
+- Added Docker deployment support and reproducible repository quality checks.
+
+### Changed
+
+- Navigation is sourced from dedicated registries instead of hard-coded frontend entries.
+- Internal architecture, planning, governance, and audit documents are maintained in the workspace
+  documentation tree instead of this repository.
+- Repository Markdown is limited to useful operational files, written in English first and French
+  second; this changelog remains English-only.
+
+### Fixed
+
+- Made API body limits compatible with Encore's compile-time requirements.
+- Separated contribution deployment history from the declarative schema journal.
+- Unified public and administrative development access without running a second Vite port.
+- Overrode the vulnerable transitive KaTeX version.
+
+### Release notes
+
+- No public version has been released yet.
+- Database migrations currently cover Core-owned infrastructure only.
