@@ -3,7 +3,11 @@ import test from "node:test";
 import { TextEncoder } from "node:util";
 import {
 	FileSecurityAnalyzer,
+	InMemoryInstanceIdentitySecretPort,
+	InMemorySecurityPolicyPort,
 	InMemorySecurityAudit,
+	InstanceIdentityService,
+	PolicyEnforcedSecurityKernel,
 	SecurityKernel,
 	SecurityKernelError,
 } from "../backend/build/security-kernel/src/index.js";
@@ -181,4 +185,53 @@ test("maintient le fichier en quarantaine si aucun scanner antimalware n’est c
 	});
 	assert.equal(result.verdict, "quarantined");
 	assert.ok(result.reasonCodes.includes("security.file.scanner_unavailable"));
+});
+
+test("ferme l’opération lorsqu’une politique est absente ou indisponible", async () => {
+	const enforced = new PolicyEnforcedSecurityKernel(new InMemorySecurityPolicyPort());
+	const unknown = await enforced.secureInput({
+		operation: "entity.update",
+		value: { title: "Caerthia" },
+		context,
+		policyIdentifier: "core.entity.unknown",
+	});
+	assert.equal(unknown.status, "denied");
+	assert.equal(unknown.reasonCode, "security.policy_unknown");
+
+	const unavailable = new PolicyEnforcedSecurityKernel({
+		async resolveInputPolicy() {
+			throw new Error("offline");
+		},
+	});
+	const denied = await unavailable.secureInput({
+		operation: "entity.update",
+		value: {},
+		context,
+		policyIdentifier: "core.entity.update",
+	});
+	assert.equal(denied.status, "denied");
+	assert.equal(denied.reasonCode, "security.policy_unavailable");
+});
+
+test("crée une identité d’instance stable et signe un défi sans exposer la clé privée", async () => {
+	const secrets = new InMemoryInstanceIdentitySecretPort();
+	const identity = new InstanceIdentityService(secrets, () => new Date("2026-10-12T12:00:00.000Z"));
+	const first = await identity.loadOrCreate();
+	const second = await identity.loadOrCreate();
+	assert.deepEqual(second, first);
+	assert.equal(first.algorithm, "Ed25519");
+	assert.equal(first.assurance, "software");
+	assert.equal("privateKeyPkcs8" in first, false);
+
+	const challenge = new TextEncoder().encode("hub-registration-challenge");
+	const signature = await identity.sign(challenge);
+	assert.equal(InstanceIdentityService.verify(first.publicKeySpki, challenge, signature), true);
+	assert.equal(
+		InstanceIdentityService.verify(
+			first.publicKeySpki,
+			new TextEncoder().encode("different-challenge"),
+			signature,
+		),
+		false,
+	);
 });

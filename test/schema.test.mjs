@@ -278,3 +278,14 @@ test("la fondation de messagerie Core est additive et couvre les états persista
 	}
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
 });
+
+test("la migration d’identité d’instance ne persiste que la partie publique", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/007_core_instance_identity.up.sql", import.meta.url),
+		"utf8",
+	);
+	assert.match(migration, /CREATE TABLE IF NOT EXISTS core\.instance_identities/);
+	assert.match(migration, /public_key_spki/);
+	assert.match(migration, /fingerprint/);
+	assert.doesNotMatch(migration, /private_key|pkcs8/);
+});
