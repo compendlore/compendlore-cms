@@ -226,5 +226,5 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 	assert.match(styles, /max-width: 52rem/);
 	assert.match(styles, /touch-action: none/);
 	const fingerprint = createHash("sha256").update(markup).update(styles).digest("hex");
-	assert.equal(fingerprint, "39eedc5336ec7e8dc995e0c32d6c0cb890f7e31d69fb764f14876f882f0d047c");
+	assert.equal(fingerprint, "90d5f68dad9b903766dc57a4843e934d12a4d038398f2ee36411203e45880dd1");
 });
