@@ -28,6 +28,12 @@ Local builds, artifacts, secrets, runtime data, and workspace documentation are 
 repository. In development, `/` serves the public site and `/admin` serves the protected interface
 from one Vite server. Production bundles remain separate.
 
+### Community
+
+Community participation is governed by `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, and
+`TRADEMARK.md`. These policies are distributed with the CMS and are not workspace-only technical
+documentation.
+
 ### Docker
 
 The `Dockerfile` provides `site`, `administration`, and `quality` targets. The Encore backend image
@@ -63,6 +69,12 @@ documentaire du workspace.
 - `npm run ci` : exécute tous les contrôles d'intégration.
 
 Les builds locaux, artefacts, secrets et données runtime sont exclus de Git.
+
+### Communauté
+
+La participation communautaire est encadrée par `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+`GOVERNANCE.md` et `TRADEMARK.md`. Ces politiques sont distribuées avec le CMS et ne constituent pas
+de la documentation technique réservée au workspace.
 
 En développement, un seul serveur Vite est lancé. Le site est disponible sur `/` et l'administration
 sur `/admin`, tous deux via le port 5173. Les applications conservent néanmoins des points d'entrée

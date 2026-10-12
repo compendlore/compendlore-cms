@@ -16,12 +16,14 @@ until the release manager assigns a version and publication date.
 - Added the API gateway, real-time communication contracts, secure external connectors, and separate
   public and administrative frontend entry points on one development origin.
 - Added Docker deployment support and reproducible repository quality checks.
+- Added the bilingual community code of conduct, governance policy, and trademark policy from the
+  repository’s initial revision.
 
 ### Changed
 
 - Navigation is sourced from dedicated registries instead of hard-coded frontend entries.
-- Internal architecture, planning, governance, and audit documents are maintained in the workspace
-  documentation tree instead of this repository.
+- Internal architecture, planning, and audit documents are maintained in the workspace documentation
+  tree instead of this repository.
 - Repository Markdown is limited to useful operational files, written in English first and French
   second; this changelog remains English-only.
 

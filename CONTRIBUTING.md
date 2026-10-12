@@ -22,7 +22,8 @@ public-contract changes may require two approvals.
 
 Repository Markdown must be necessary to use, secure, license, or contribute to the project. It must
 present English first and French second. Architecture, planning, audits, and long-form project
-documentation belong in the workspace documentation tree, not in this repository.
+documentation belong in the workspace documentation tree, not in this repository. Community policies
+such as the code of conduct, governance, and trademark rules remain in the repository.
 
 ### Contribution origin
 
@@ -53,7 +54,8 @@ exiger deux approbations.
 Les fichiers Markdown du dépôt doivent être nécessaires à l’utilisation, à la sécurité, à la licence
 ou à la contribution au projet. Ils présentent d’abord l’anglais, puis le français. L’architecture,
 la planification, les audits et la documentation longue du projet appartiennent à l’arborescence
-documentaire du workspace et non à ce dépôt.
+documentaire du workspace et non à ce dépôt. Les politiques communautaires telles que le code de
+conduite, la gouvernance et les règles de marque restent dans le dépôt.
 
 ### Origine des contributions
 
