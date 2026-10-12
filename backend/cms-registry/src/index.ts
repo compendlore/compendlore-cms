@@ -7,6 +7,7 @@ export const foundation = Object.freeze({
 export * from "./contracts.js";
 export * from "./messaging.js";
 export * from "./statistics.js";
+export * from "./themes.js";
 export type { RegisteredMethodContext, RegisteredMethodHandler } from "./dispatcher.js";
 export { RegistryError } from "./errors.js";
 export { CmsRegistry, createInMemoryCmsRegistry } from "./registry.js";

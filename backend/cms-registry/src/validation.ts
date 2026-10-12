@@ -6,6 +6,7 @@ import {
 } from "./contracts.js";
 import { RegistryError } from "./errors.js";
 import { messageDeliveryProfiles } from "./messaging.js";
+import { themeTokenTypes } from "./themes.js";
 
 const identifierPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const localePattern = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -76,6 +77,7 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 	if (definition.frontendNetwork) validateFrontendNetwork(definition.frontendNetwork);
 	validateStatisticContract(definition);
 	validateMessagingContract(definition);
+	validateThemeContract(definition);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);
@@ -84,6 +86,77 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		if (definition.replacementPolicy !== "explicit") {
 			throw invalid("Un remplacement doit utiliser la politique explicite.");
 		}
+	}
+}
+
+function validateThemeContract(definition: ContributionDefinition): void {
+	assertExclusiveContract(definition, "theme", "theme");
+	assertExclusiveContract(definition, "theme-extension", "themeExtension");
+	if (definition.theme) {
+		if (!semverPattern.test(definition.theme.schemaVersion)) {
+			throw invalid("La version du schéma de thème doit respecter SemVer.");
+		}
+		if (definition.theme.surfaces.length === 0) {
+			throw invalid("Un thème doit déclarer au moins une surface.");
+		}
+		validateUniqueValues(definition.theme.surfaces, "surface de thème");
+		if (Object.keys(definition.theme.tokens).length === 0) {
+			throw invalid("Un thème doit déclarer au moins un jeton.");
+		}
+		for (const [identifier, token] of Object.entries(definition.theme.tokens)) {
+			validateIdentifier(identifier, "jeton de thème");
+			if (!themeTokenTypes.includes(token.type)) throw invalid("Le type du jeton est inconnu.");
+			validateThemeTokenValue(token.type, token.value);
+			validateLocalizedText(token.description);
+		}
+		const variants = new Set<string>();
+		for (const variant of definition.theme.variants) {
+			validateIdentifier(variant.identifier, "variante de thème");
+			if (variants.has(variant.identifier)) throw invalid("Une variante de thème est dupliquée.");
+			variants.add(variant.identifier);
+			validateLocalizedText(variant.label);
+			for (const [identifier, value] of Object.entries(variant.tokens)) {
+				const token = definition.theme.tokens[identifier];
+				if (!token) throw invalid("Une variante référence un jeton de thème inconnu.");
+				validateThemeTokenValue(token.type, value);
+			}
+		}
+		if (definition.theme.fallbackThemeIdentifier) {
+			validateIdentifier(definition.theme.fallbackThemeIdentifier, "thème de repli");
+		}
+	}
+	if (definition.themeExtension) {
+		const extension = definition.themeExtension;
+		if (!semverPattern.test(extension.schemaVersion)) {
+			throw invalid("La version du schéma d’extension de thème doit respecter SemVer.");
+		}
+		validateIdentifier(extension.targetThemeIdentifier, "thème cible");
+		if (
+			!Number.isSafeInteger(extension.order) ||
+			extension.order < -10_000 ||
+			extension.order > 10_000
+		) {
+			throw invalid("L’ordre de l’extension de thème est invalide.");
+		}
+		for (const identifier of Object.keys(extension.tokens)) {
+			validateIdentifier(identifier, "jeton d’extension de thème");
+		}
+		validateUniqueIdentifiers(extension.conflictsWith, "conflit de thème");
+	}
+}
+
+function validateThemeTokenValue(type: string, value: string | number): void {
+	if (type === "number") {
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			throw invalid("La valeur numérique d’un jeton de thème est invalide.");
+		}
+		return;
+	}
+	if (typeof value !== "string" || !value.trim() || value.length > 512) {
+		throw invalid("La valeur textuelle d’un jeton de thème est invalide.");
+	}
+	if (/url\s*\(|expression\s*\(|[{};]/i.test(value)) {
+		throw invalid("Un jeton de thème ne peut pas contenir de CSS arbitraire.");
 	}
 }
 
@@ -260,7 +333,9 @@ function assertExclusiveContract(
 		| "statisticDimension"
 		| "statisticEvent"
 		| "statisticMetric"
-		| "statisticPolicy",
+		| "statisticPolicy"
+		| "theme"
+		| "themeExtension",
 ): void {
 	const contract = definition[property];
 	if (definition.type === type && !contract) {

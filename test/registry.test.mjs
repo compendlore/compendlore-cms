@@ -56,6 +56,48 @@ test("enregistre, active et expose les contributions déclaratives", async () =>
 	assert.deepEqual((await registry.inspect("module.editorial.content")).blockers, []);
 });
 
+test("valide les thèmes typés et refuse le CSS arbitraire", async () => {
+	const { registry } = await createRegistry();
+	const theme = contribution("theme", "compendlore.default", {
+		theme: {
+			schemaVersion: "1.0.0",
+			surfaces: ["public", "administration"],
+			tokens: {
+				"color.background": {
+					type: "color",
+					value: "#101419",
+					description: { en: "Background", "fr-FR": "Arrière-plan" },
+				},
+			},
+			variants: [
+				{
+					identifier: "dark",
+					label: { en: "Dark", "fr-FR": "Sombre" },
+					tokens: { "color.background": "#050709" },
+				},
+			],
+		},
+	});
+	await registry.discover(theme, { requester: nativeOwner });
+	await assert.rejects(
+		registry.discover(
+			contribution("theme", "unsafe.theme", {
+				theme: {
+					...theme.theme,
+					tokens: {
+						"color.background": {
+							...theme.theme.tokens["color.background"],
+							value: "url(javascript:alert(1))",
+						},
+					},
+				},
+			}),
+			{ requester: nativeOwner },
+		),
+		RegistryError,
+	);
+});
+
 test("laisse le Core appeler une méthode métier sans importer son implémentation", async () => {
 	const { store, registry } = await createRegistry();
 	const actorId = "00000000-0000-4000-8000-000000000041";

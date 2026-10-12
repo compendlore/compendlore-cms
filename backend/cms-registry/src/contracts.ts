@@ -10,6 +10,7 @@ import type {
 	StatisticMetricDefinition,
 	StatisticPolicyDefinition,
 } from "./statistics.js";
+import type { ThemeDefinition, ThemeExtensionDefinition } from "./themes.js";
 
 export type ContributionType =
 	| "api-endpoint"
@@ -27,6 +28,8 @@ export type ContributionType =
 	| "permission"
 	| "statistic-policy"
 	| "table"
+	| "theme"
+	| "theme-extension"
 	| "translation";
 
 export type ContributionState =
@@ -134,6 +137,8 @@ export interface ContributionDefinition {
 	readonly statisticPolicy?: StatisticPolicyDefinition;
 	readonly messageTopic?: MessageTopicDefinition;
 	readonly messageTemplate?: MessageTemplateDefinition;
+	readonly theme?: ThemeDefinition;
+	readonly themeExtension?: ThemeExtensionDefinition;
 	readonly payload?: CoreJsonValue;
 }
 
