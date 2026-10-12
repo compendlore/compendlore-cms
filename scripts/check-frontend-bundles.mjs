@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 const applications = [
 	{ name: "site", expectedEntry: "index.html" },
@@ -17,7 +17,7 @@ for (const application of applications) {
 	const entry = Object.values(manifest).find((value) => value.isEntry);
 	if (!entry || entry.src !== application.expectedEntry)
 		throw new Error(`Le manifeste ${application.name} ne possède pas le bon point d’entrée.`);
-	if (!files.includes("index.html") || !files.includes(entry.file.replaceAll("/", "\\")))
+	if (!files.includes("index.html") || !files.includes(entry.file))
 		throw new Error(`Le build ${application.name} est incomplet.`);
 	manifests.set(application.name, manifest);
 }
@@ -48,7 +48,7 @@ async function recursiveFiles(root, relative = "") {
 	for (const entry of entries) {
 		const path = join(relative, entry.name);
 		if (entry.isDirectory()) files.push(...(await recursiveFiles(root, path)));
-		else files.push(path);
+		else files.push(path.split(sep).join("/"));
 	}
 	return files;
 }
