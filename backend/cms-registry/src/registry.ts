@@ -34,6 +34,8 @@ const contributionTypes: readonly ContributionType[] = [
 	"event",
 	"frontend-network",
 	"method",
+	"message-template",
+	"message-topic",
 	"metric",
 	"module",
 	"permission",
@@ -535,6 +537,14 @@ function definitionFromStored(contribution: StoredContribution): ContributionDef
 		...(contribution.endpoint ? { endpoint: contribution.endpoint } : {}),
 		...(contribution.connector ? { connector: contribution.connector } : {}),
 		...(contribution.frontendNetwork ? { frontendNetwork: contribution.frontendNetwork } : {}),
+		...(contribution.statisticEvent ? { statisticEvent: contribution.statisticEvent } : {}),
+		...(contribution.statisticDimension
+			? { statisticDimension: contribution.statisticDimension }
+			: {}),
+		...(contribution.statisticMetric ? { statisticMetric: contribution.statisticMetric } : {}),
+		...(contribution.statisticPolicy ? { statisticPolicy: contribution.statisticPolicy } : {}),
+		...(contribution.messageTopic ? { messageTopic: contribution.messageTopic } : {}),
+		...(contribution.messageTemplate ? { messageTemplate: contribution.messageTemplate } : {}),
 		...(contribution.payload !== undefined ? { payload: contribution.payload } : {}),
 	};
 }

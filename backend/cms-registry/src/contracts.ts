@@ -3,6 +3,13 @@ import type {
 	CoreJsonValue,
 	FrontendNetworkDefinition,
 } from "../../core/src/index.js";
+import type { MessageTemplateDefinition, MessageTopicDefinition } from "./messaging.js";
+import type {
+	StatisticDimensionDefinition,
+	StatisticEventDefinition,
+	StatisticMetricDefinition,
+	StatisticPolicyDefinition,
+} from "./statistics.js";
 
 export type ContributionType =
 	| "api-endpoint"
@@ -13,6 +20,8 @@ export type ContributionType =
 	| "event"
 	| "frontend-network"
 	| "method"
+	| "message-template"
+	| "message-topic"
 	| "metric"
 	| "module"
 	| "permission"
@@ -119,6 +128,12 @@ export interface ContributionDefinition {
 	readonly endpoint?: ApiEndpointContractDefinition;
 	readonly connector?: ConnectorDefinition;
 	readonly frontendNetwork?: FrontendNetworkDefinition;
+	readonly statisticEvent?: StatisticEventDefinition;
+	readonly statisticDimension?: StatisticDimensionDefinition;
+	readonly statisticMetric?: StatisticMetricDefinition;
+	readonly statisticPolicy?: StatisticPolicyDefinition;
+	readonly messageTopic?: MessageTopicDefinition;
+	readonly messageTemplate?: MessageTemplateDefinition;
 	readonly payload?: CoreJsonValue;
 }
 

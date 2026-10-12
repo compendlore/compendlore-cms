@@ -5,6 +5,7 @@ import {
 	type ContributionOwner,
 } from "./contracts.js";
 import { RegistryError } from "./errors.js";
+import { messageDeliveryProfiles } from "./messaging.js";
 
 const identifierPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const localePattern = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -73,6 +74,8 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		throw invalid("Une politique réseau frontend ne peut appartenir qu’à sa contribution.");
 	}
 	if (definition.frontendNetwork) validateFrontendNetwork(definition.frontendNetwork);
+	validateStatisticContract(definition);
+	validateMessagingContract(definition);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);
@@ -80,6 +83,246 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 		validateIdentifier(definition.replaces, "remplacement");
 		if (definition.replacementPolicy !== "explicit") {
 			throw invalid("Un remplacement doit utiliser la politique explicite.");
+		}
+	}
+}
+
+function validateStatisticContract(definition: ContributionDefinition): void {
+	assertExclusiveContract(definition, "event", "statisticEvent");
+	assertExclusiveContract(definition, "dimension", "statisticDimension");
+	assertExclusiveContract(definition, "metric", "statisticMetric");
+	assertExclusiveContract(definition, "statistic-policy", "statisticPolicy");
+
+	if (definition.statisticEvent) {
+		if (!semverPattern.test(definition.statisticEvent.schemaVersion)) {
+			throw invalid("La version du schéma statistique doit respecter SemVer.");
+		}
+		validateLocalizedText(definition.statisticEvent.purpose);
+		validateRetention(definition.statisticEvent.retentionDays);
+		for (const [fieldName, field] of Object.entries(definition.statisticEvent.fields)) {
+			validateIdentifier(fieldName, "champ statistique");
+			assertNonSensitiveStatisticName(fieldName);
+			if (
+				field.maximumLength !== undefined &&
+				(field.type !== "string" ||
+					!Number.isSafeInteger(field.maximumLength) ||
+					field.maximumLength < 1 ||
+					field.maximumLength > 4_096)
+			) {
+				throw invalid("La longueur maximale d’un champ statistique est invalide.");
+			}
+			validateScalarValues(field.allowedValues, field.type);
+		}
+		validateUniqueIdentifiers(
+			definition.statisticEvent.dimensionIdentifiers,
+			"dimension statistique",
+		);
+	}
+
+	if (definition.statisticDimension) {
+		assertNonSensitiveStatisticName(definition.identifier);
+		validateLocalizedText(definition.statisticDimension.purpose);
+		if (
+			!Number.isSafeInteger(definition.statisticDimension.cardinalityLimit) ||
+			definition.statisticDimension.cardinalityLimit < 1 ||
+			definition.statisticDimension.cardinalityLimit > 100_000
+		) {
+			throw invalid("La cardinalité d’une dimension statistique est invalide.");
+		}
+		validateScalarValues(
+			definition.statisticDimension.allowedValues,
+			definition.statisticDimension.valueType,
+		);
+	}
+
+	if (definition.statisticMetric) {
+		validateIdentifier(definition.statisticMetric.eventIdentifier, "événement statistique");
+		if (definition.statisticMetric.field) {
+			validateIdentifier(definition.statisticMetric.field, "champ de métrique");
+		}
+		if (!/^[A-Za-z][A-Za-z0-9._%/-]{0,31}$/.test(definition.statisticMetric.unit)) {
+			throw invalid("L’unité d’une métrique statistique est invalide.");
+		}
+		if (definition.statisticMetric.granularities.length === 0) {
+			throw invalid("Une métrique doit déclarer au moins une granularité.");
+		}
+		validateUniqueValues(definition.statisticMetric.granularities, "granularité statistique");
+		validateUniqueIdentifiers(
+			definition.statisticMetric.dimensionIdentifiers,
+			"dimension statistique",
+		);
+	}
+
+	if (definition.statisticPolicy) {
+		validateIdentifier(definition.statisticPolicy.purposeIdentifier, "finalité statistique");
+		validateRetention(definition.statisticPolicy.retentionDays);
+		if (
+			!Number.isFinite(definition.statisticPolicy.sampleRate) ||
+			definition.statisticPolicy.sampleRate < 0 ||
+			definition.statisticPolicy.sampleRate > 1
+		) {
+			throw invalid("Le taux d’échantillonnage statistique doit être compris entre 0 et 1.");
+		}
+		if (
+			definition.statisticPolicy.anonymizeAfterDays !== undefined &&
+			(!Number.isSafeInteger(definition.statisticPolicy.anonymizeAfterDays) ||
+				definition.statisticPolicy.anonymizeAfterDays < 0 ||
+				definition.statisticPolicy.anonymizeAfterDays > definition.statisticPolicy.retentionDays)
+		) {
+			throw invalid("Le délai d’anonymisation statistique est invalide.");
+		}
+	}
+}
+
+function validateMessagingContract(definition: ContributionDefinition): void {
+	assertExclusiveContract(definition, "message-topic", "messageTopic");
+	assertExclusiveContract(definition, "message-template", "messageTemplate");
+	if (definition.messageTopic) {
+		const topic = definition.messageTopic;
+		if (!semverPattern.test(topic.schemaVersion)) {
+			throw invalid("La version du schéma de message doit respecter SemVer.");
+		}
+		validateLocalizedText(topic.purpose);
+		if (!messageDeliveryProfiles.includes(topic.profile)) {
+			throw invalid("Le profil de livraison du message est inconnu.");
+		}
+		validateRetention(topic.retentionDays);
+		validateUniqueValues(topic.audiences, "audience de message");
+		validateUniqueValues(topic.presentations, "présentation de message");
+		validateUniqueValues(topic.channels, "canal de message");
+		if (
+			topic.audiences.length === 0 ||
+			topic.presentations.length === 0 ||
+			topic.channels.length === 0
+		) {
+			throw invalid("Un sujet de message doit déclarer audience, présentation et canal.");
+		}
+		if (
+			topic.maximumRecipients !== undefined &&
+			(!Number.isSafeInteger(topic.maximumRecipients) ||
+				topic.maximumRecipients < 1 ||
+				topic.maximumRecipients > 100_000)
+		) {
+			throw invalid("La limite de destinataires du message est invalide.");
+		}
+		if (
+			topic.profile === "direct-acknowledged" &&
+			(topic.audiences.includes("broadcast") ||
+				topic.maximumRecipients === undefined ||
+				topic.maximumRecipients > 100)
+		) {
+			throw invalid("Un envoi direct avec accusé doit cibler au plus 100 destinataires.");
+		}
+		if (
+			topic.expiresAfterSeconds !== undefined &&
+			(!Number.isSafeInteger(topic.expiresAfterSeconds) ||
+				topic.expiresAfterSeconds < 1 ||
+				topic.expiresAfterSeconds > 31_536_000)
+		) {
+			throw invalid("L’expiration du message est invalide.");
+		}
+		for (const [fieldName, field] of Object.entries(topic.payload)) {
+			validateIdentifier(fieldName, "champ de message");
+			assertNonSensitiveMessageName(fieldName);
+			if (
+				field.maximumLength !== undefined &&
+				(field.type !== "string" ||
+					!Number.isSafeInteger(field.maximumLength) ||
+					field.maximumLength < 1 ||
+					field.maximumLength > 65_536)
+			) {
+				throw invalid("La longueur maximale d’un champ de message est invalide.");
+			}
+		}
+	}
+	if (definition.messageTemplate) {
+		const template = definition.messageTemplate;
+		validateIdentifier(template.topicIdentifier, "sujet de modèle de message");
+		if (!semverPattern.test(template.templateVersion)) {
+			throw invalid("La version du modèle de message doit respecter SemVer.");
+		}
+		validateSafeLocalizedText(template.title);
+		validateSafeLocalizedText(template.body);
+		if (template.summary) validateSafeLocalizedText(template.summary);
+		for (const [action, labels] of Object.entries(template.actionLabels ?? {})) {
+			validateIdentifier(action, "action de message");
+			validateSafeLocalizedText(labels);
+		}
+	}
+}
+
+function assertExclusiveContract(
+	definition: ContributionDefinition,
+	type: ContributionDefinition["type"],
+	property:
+		| "messageTemplate"
+		| "messageTopic"
+		| "statisticDimension"
+		| "statisticEvent"
+		| "statisticMetric"
+		| "statisticPolicy",
+): void {
+	const contract = definition[property];
+	if (definition.type === type && !contract) {
+		throw invalid(`La contribution ${type} doit déclarer son contrat.`);
+	}
+	if (definition.type !== type && contract) {
+		throw invalid(`Le contrat ${property} ne peut appartenir qu’à une contribution ${type}.`);
+	}
+}
+
+function validateRetention(days: number): void {
+	if (!Number.isSafeInteger(days) || days < 1 || days > 3_650) {
+		throw invalid("La durée de conservation doit être comprise entre 1 et 3 650 jours.");
+	}
+}
+
+function validateScalarValues(
+	values: readonly (boolean | number | string)[] | undefined,
+	type: string,
+): void {
+	if (!values) return;
+	if (values.length === 0 || values.length > 1_000) {
+		throw invalid("La liste des valeurs statistiques autorisées est invalide.");
+	}
+	for (const value of values) {
+		const expectedType = type === "duration" || type === "integer" ? "number" : type;
+		if (typeof value !== expectedType || (type === "integer" && !Number.isSafeInteger(value))) {
+			throw invalid("Une valeur statistique autorisée ne correspond pas au type déclaré.");
+		}
+	}
+	validateUniqueValues(values, "valeur statistique");
+}
+
+function validateUniqueIdentifiers(values: readonly string[] | undefined, label: string): void {
+	if (!values) return;
+	for (const value of values) validateIdentifier(value, label);
+	validateUniqueValues(values, label);
+}
+
+function validateUniqueValues(values: readonly unknown[], label: string): void {
+	if (new Set(values).size !== values.length) {
+		throw invalid(`Une ${label} est déclarée plusieurs fois.`);
+	}
+}
+
+function assertNonSensitiveStatisticName(name: string): void {
+	if (/(?:content|email|password|secret|token)/i.test(name)) {
+		throw invalid("Un champ statistique ne peut pas contenir une donnée sensible interdite.");
+	}
+}
+
+function assertNonSensitiveMessageName(name: string): void {
+	if (/(?:2fa|mfa|password|recovery.?code|secret|token)/i.test(name)) {
+		throw invalid("Une charge de message ne peut pas déclarer de secret ou de facteur.");
+	}
+}
+
+function validateSafeLocalizedText(value: Readonly<Record<string, string>>): void {
+	validateLocalizedText(value);
+	for (const text of Object.values(value)) {
+		if (/<\/?[A-Za-z][^>]*>|javascript:|on[a-z]+\s*=/i.test(text)) {
+			throw invalid("Un modèle de message ne peut pas contenir de HTML ou de script.");
 		}
 	}
 }

@@ -176,3 +176,86 @@ test("réconcilie un redémarrage et conserve une contribution en échec répara
 	assert.deepEqual(restarted.activated, ["module.search"]);
 	assert.equal((await registry.get("module.search")).version, "1.1.0");
 });
+
+test("enregistre des contrats statistiques déclaratifs et refuse les données sensibles", async () => {
+	const { registry } = await createRegistry();
+	const event = contribution("event", "editorial.page-viewed", {
+		statisticEvent: {
+			schemaVersion: "1.0.0",
+			purpose: { en: "Measure editorial page usage.", "fr-FR": "Mesurer l’usage des pages." },
+			sensitivity: "internal",
+			retentionDays: 90,
+			timestampSource: "core",
+			fields: {
+				duration: { type: "duration", required: true },
+			},
+			dimensionIdentifiers: ["editorial.content-type"],
+		},
+	});
+	await registry.register(event, { requester: nativeOwner });
+	assert.equal(
+		(await registry.get("event.editorial.page-viewed")).statisticEvent.retentionDays,
+		90,
+	);
+
+	await assert.rejects(
+		registry.register(
+			contribution("event", "editorial.invalid-event", {
+				statisticEvent: {
+					schemaVersion: "1.0.0",
+					purpose: { en: "Invalid event." },
+					sensitivity: "restricted",
+					retentionDays: 30,
+					timestampSource: "core",
+					fields: { email: { type: "string", required: true } },
+				},
+			}),
+			{ requester: nativeOwner },
+		),
+		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+	);
+});
+
+test("enregistre les sujets de message et borne les envois directs avec accusé", async () => {
+	const { registry } = await createRegistry();
+	const topic = contribution("message-topic", "editorial.save-confirmation", {
+		messageTopic: {
+			schemaVersion: "1.0.0",
+			purpose: { en: "Confirm an editorial save.", "fr-FR": "Confirmer une sauvegarde." },
+			sensitivity: "internal",
+			profile: "direct-acknowledged",
+			durability: "durable",
+			acknowledgement: "processed",
+			priority: "normal",
+			audiences: ["user", "user-list"],
+			presentations: ["toast", "inbox"],
+			channels: ["realtime", "inbox"],
+			payload: {
+				resource: { type: "string", required: true, maximumLength: 160 },
+			},
+			idempotent: true,
+			maximumRecipients: 25,
+			expiresAfterSeconds: 300,
+			retentionDays: 30,
+		},
+	});
+	await registry.register(topic, { requester: nativeOwner });
+	assert.equal(
+		(await registry.get("message-topic.editorial.save-confirmation")).messageTopic.profile,
+		"direct-acknowledged",
+	);
+
+	await assert.rejects(
+		registry.register(
+			contribution("message-topic", "editorial.invalid-broadcast", {
+				messageTopic: {
+					...topic.messageTopic,
+					audiences: ["broadcast"],
+					maximumRecipients: 1_000,
+				},
+			}),
+			{ requester: nativeOwner },
+		),
+		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+	);
+});
