@@ -24,6 +24,10 @@ Maintainers may edit, reject, or remove contributions and messages that violate 
 on severity or repetition, they may issue a warning, temporarily restrict participation, or
 permanently ban an account from project spaces.
 
+Maintainers may temporarily restrict an account when compromise is reasonably suspected. This is a
+preventive security measure, not by itself a disciplinary finding, and should be reassessed when the
+security risk can reasonably be evaluated.
+
 Reports must be sent privately to the contact designated by the project organization. Reporters and
 affected people will be protected from retaliation as far as the project can reasonably ensure.
 Until a private community contact is published, security-sensitive reports must follow
@@ -54,6 +58,10 @@ acceptés.
 Les mainteneurs peuvent modifier, refuser ou retirer les contributions et messages qui enfreignent
 ce code. Selon la gravité ou la répétition, ils peuvent émettre un avertissement, restreindre
 temporairement la participation ou exclure définitivement un compte des espaces du projet.
+
+Les mainteneurs peuvent restreindre temporairement un compte lorsqu’une compromission est
+raisonnablement suspectée. Il s’agit d’une mesure préventive de sécurité, et non à elle seule d’une
+sanction disciplinaire ; elle doit être réévaluée lorsque le risque peut raisonnablement l’être.
 
 Les signalements doivent être envoyés en privé au contact désigné par l’organisation du projet. Le
 projet protège autant que raisonnablement possible les personnes ayant signalé un problème et les

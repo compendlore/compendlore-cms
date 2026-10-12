@@ -19,6 +19,8 @@ Describe the need and the observable result.
 - [ ] Manual validation is not required, or its successful result is documented in this pull request
 - [ ] No secret, runtime file, or workspace documentation was added
 - [ ] Breaking changes are explicitly identified
+- [ ] Third-party material, provenance, and required permissions are documented
+- [ ] No CLA acceptance is claimed; `CLA.md` remains a draft until formal activation
 
 ## Français
 
@@ -42,3 +44,6 @@ Décrire le besoin et le résultat observable.
 - [ ] La validation manuelle n’est pas requise ou son résultat positif est documenté ici
 - [ ] Aucun secret, fichier runtime ou document du workspace ajouté
 - [ ] Les changements incompatibles sont signalés
+- [ ] Les éléments tiers, leur provenance et les autorisations nécessaires sont documentés
+- [ ] Aucune acceptation du CLA n’est déclarée ; `CLA.md` reste un projet jusqu’à son activation
+      formelle
