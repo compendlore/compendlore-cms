@@ -21,6 +21,7 @@ until the release manager assigns a version and publication date.
 
 ### Changed
 
+- Extracted the public addon SDK contracts into the standalone `compendlore-addon-sdk` repository.
 - Navigation is sourced from dedicated registries instead of hard-coded frontend entries.
 - Internal architecture, planning, and audit documents are maintained in the workspace documentation
   tree instead of this repository.

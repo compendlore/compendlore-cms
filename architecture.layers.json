@@ -21,19 +21,14 @@
 			"mayImport": ["core", "registry"]
 		},
 		{
-			"name": "sdk-contracts",
-			"paths": ["packages/addon-sdk-contracts/"],
-			"mayImport": []
-		},
-		{
 			"name": "site",
 			"paths": ["frontend/site/"],
-			"mayImport": ["sdk-contracts"]
+			"mayImport": []
 		},
 		{
 			"name": "administration",
 			"paths": ["frontend/administration/"],
-			"mayImport": ["sdk-contracts"]
+			"mayImport": []
 		}
 	]
 }
