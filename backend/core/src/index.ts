@@ -18,6 +18,7 @@ export * from "./postgres-schema-runtime.js";
 export * from "./restoration.js";
 export * from "./registry-port.js";
 export * from "./security.js";
+export * from "./security-boundary.js";
 export * from "./schema-runtime.js";
 export * from "./services.js";
 export * from "./settings.js";

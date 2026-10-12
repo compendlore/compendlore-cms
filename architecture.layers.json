@@ -1,9 +1,14 @@
 {
 	"layers": [
 		{
+			"name": "security-kernel",
+			"paths": ["backend/security-kernel/"],
+			"mayImport": []
+		},
+		{
 			"name": "core",
 			"paths": ["backend/core/"],
-			"mayImport": []
+			"mayImport": ["security-kernel"]
 		},
 		{
 			"name": "registry",
