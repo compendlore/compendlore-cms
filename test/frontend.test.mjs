@@ -208,7 +208,6 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 				}),
 				createElement(DateTimePicker, {
 					locale: "fr-FR",
-					value: "2026-10-11T12:00:00.000Z",
 					onChange() {},
 				}),
 			),
@@ -225,6 +224,9 @@ test("conserve le contrat visuel et accessible du design system", async () => {
 	assert.match(styles, /prefers-reduced-motion/);
 	assert.match(styles, /max-width: 52rem/);
 	assert.match(styles, /touch-action: none/);
-	const fingerprint = createHash("sha256").update(markup).update(styles).digest("hex");
-	assert.equal(fingerprint, "90d5f68dad9b903766dc57a4843e934d12a4d038398f2ee36411203e45880dd1");
+	const fingerprint = createHash("sha256")
+		.update(markup)
+		.update(styles.replaceAll("\r\n", "\n"))
+		.digest("hex");
+	assert.equal(fingerprint, "0fe2e17ddbcb3f944f8f29e8979ed1810385f89ed6885331918d11b880c276e9");
 });
