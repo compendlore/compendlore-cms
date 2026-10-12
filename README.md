@@ -34,6 +34,12 @@ Community participation is governed by `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, 
 `TRADEMARK.md`. These policies are distributed with the CMS and are not workspace-only technical
 documentation.
 
+Compendlore CMS is free and is intended to remain free. Its code is made available under a
+proprietary source-available license draft, not an OSI-approved open-source license. Private
+modification, authorized self-hosting, contribution forks, and deployment of unmodified official
+releases are distinguished from redistribution of modified or unofficial distributions in
+`LICENSE.md`. `CLA.md` is a legal-review draft and no CLA acceptance process is active.
+
 ### Docker
 
 The `Dockerfile` provides `site`, `administration`, and `quality` targets. The Encore backend image
@@ -75,6 +81,13 @@ Les builds locaux, artefacts, secrets et données runtime sont exclus de Git.
 La participation communautaire est encadrée par `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
 `GOVERNANCE.md` et `TRADEMARK.md`. Ces politiques sont distribuées avec le CMS et ne constituent pas
 de la documentation technique réservée au workspace.
+
+Compendlore CMS est gratuit et a vocation à le rester. Son code est mis à disposition sous un projet
+de licence propriétaire à code source accessible, et non sous une licence open source approuvée par
+l’OSI. `LICENSE.md` distingue la modification privée, l’auto-hébergement autorisé, les forks de
+contribution et le déploiement de versions officielles non modifiées de la redistribution de
+distributions modifiées ou non officielles. `CLA.md` est un projet soumis à validation juridique et
+aucun processus d’acceptation du CLA n’est actif.
 
 En développement, un seul serveur Vite est lancé. Le site est disponible sur `/` et l'administration
 sur `/admin`, tous deux via le port 5173. Les applications conservent néanmoins des points d'entrée
