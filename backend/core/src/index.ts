@@ -14,6 +14,7 @@ export * from "./frontend-network.js";
 export * from "./installation.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";
+export * from "./messaging-runtime.js";
 export * from "./postgres-schema-runtime.js";
 export * from "./restoration.js";
 export * from "./registry-port.js";

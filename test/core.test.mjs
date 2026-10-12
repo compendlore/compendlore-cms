@@ -192,6 +192,55 @@ test("applique les règles de stockage et de communication directe", async () =>
 	assert.equal(delivered.length, 1);
 });
 
+test("publie l’outbox avec reprise bornée et lettre morte", async () => {
+	const { ReliableOutboxDispatcher } = await import("../backend/build/core/src/index.js");
+	const calls = [];
+	const states = [];
+	const outbox = {
+		async claim() {
+			return [
+				{ id: "ok", payload: {}, attemptCount: 0, availableAt: new Date() },
+				{ id: "retry", payload: {}, attemptCount: 0, availableAt: new Date() },
+				{ id: "dead", payload: {}, attemptCount: 2, availableAt: new Date() },
+			];
+		},
+		async published(id) {
+			states.push([id, "published"]);
+		},
+		async retry(id, input) {
+			states.push([id, "retry", input.errorCode, input.at.toISOString()]);
+		},
+		async deadLetter(id, input) {
+			states.push([id, "dead", input.reasonCode]);
+		},
+	};
+	const dispatcher = new ReliableOutboxDispatcher(
+		outbox,
+		{
+			async publish(message) {
+				calls.push(message.id);
+				if (message.id !== "ok")
+					throw Object.assign(new Error("offline"), { code: "transport.offline" });
+			},
+		},
+		3,
+		1_000,
+		() => new Date("2026-10-12T12:00:00.000Z"),
+	);
+	assert.deepEqual(await dispatcher.dispatch(), {
+		claimed: 3,
+		published: 1,
+		retried: 1,
+		deadLettered: 1,
+	});
+	assert.deepEqual(calls, ["ok", "retry", "dead"]);
+	assert.deepEqual(states, [
+		["ok", "published"],
+		["retry", "retry", "transport.offline", "2026-10-12T12:00:01.000Z"],
+		["dead", "dead", "transport.offline"],
+	]);
+});
+
 test("fournit un flux d’événements durable et agnostique pour les modules", async () => {
 	const store = new InMemoryCoreStore();
 	let now = new Date("2026-10-10T00:00:00.000Z");
