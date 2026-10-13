@@ -20,6 +20,11 @@ until the release manager assigns a version and publication date.
   repository’s initial revision.
 - Added fail-closed security policy resolution, Ed25519 instance identity, reliable outbox dispatch,
   typed theme contracts, and automated dependency maintenance.
+- Added the Phase 9 native vertical slice: Core localization, entity, navigation, sidebar and page
+  catalogs; Registry materialization and lifecycle; PostgreSQL structural catalogs; and resolved API
+  projections for the public and administrative React applications.
+- Added the required abstract `entity` root with inherited identity and editorial fields, native
+  home and administration navigation, and an administrative contribution-inspection view.
 
 ### Changed
 
@@ -29,6 +34,7 @@ until the release manager assigns a version and publication date.
   tree instead of this repository.
 - Repository Markdown is limited to useful operational files, written in English first and French
   second; this changelog remains English-only.
+- Isolated Encore runtime adapters from testable database and catalog contracts.
 
 ### Fixed
 

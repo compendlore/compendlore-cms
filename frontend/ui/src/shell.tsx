@@ -6,6 +6,7 @@ export type NavigationItem = NavigationLinkView;
 
 export interface ApplicationShellProps {
 	readonly administration?: boolean;
+	readonly brand?: NavigationItem | undefined;
 	readonly primaryNavigation?: readonly NavigationItem[];
 	readonly sidebar?: SidebarView | undefined;
 	readonly actions?: ReactNode;
@@ -15,6 +16,7 @@ export interface ApplicationShellProps {
 
 export function ApplicationShell({
 	administration = false,
+	brand,
 	primaryNavigation = [],
 	sidebar,
 	actions,
@@ -28,17 +30,17 @@ export function ApplicationShell({
 			<header className="topbar">
 				<a
 					className="brand"
-					href="/"
+					href={brand?.href ?? "/"}
 					onClick={(event) => {
 						if (!onNavigate) return;
 						event.preventDefault();
-						onNavigate("/");
+						onNavigate(brand?.href ?? "/");
 					}}
 				>
 					<span className="brand__mark">
-						<Icon name="brand" size={22} />
+						<Icon name={brand?.icon ?? "brand"} size={22} />
 					</span>
-					<span>Lore &amp; Dice CMS</span>
+					<span>{brand?.label ?? "Compendlore CMS"}</span>
 				</a>
 				<nav className="topbar__navigation" aria-label="Navigation principale">
 					{primaryNavigation.map((item) => (
@@ -76,6 +78,14 @@ function SidebarElement({
 	readonly item: SidebarElementView;
 	readonly onNavigate?: ((href: string) => void) | undefined;
 }) {
+	if (item.kind === "separator") {
+		return (
+			<div className="sidebar__separator">
+				{item.icon ? <Icon name={item.icon} size={16} /> : null}
+				<strong>{item.label}</strong>
+			</div>
+		);
+	}
 	if (item.kind === "category") {
 		return (
 			<details className="sidebar__category" open={item.initiallyExpanded}>

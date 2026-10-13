@@ -18,7 +18,12 @@
 		{
 			"name": "api",
 			"paths": ["backend/api/"],
-			"mayImport": ["core", "registry"]
+			"mayImport": ["core", "registry", "site-backend"]
+		},
+		{
+			"name": "site-backend",
+			"paths": ["backend/site/"],
+			"mayImport": ["registry"]
 		},
 		{
 			"name": "site",

@@ -67,7 +67,14 @@ export interface SidebarLinkView extends NavigationLinkView {
 	readonly children: readonly SidebarElementView[];
 }
 
-export type SidebarElementView = SidebarCategoryView | SidebarLinkView;
+export interface SidebarSeparatorView {
+	readonly kind: "separator";
+	readonly id: string;
+	readonly label: string;
+	readonly icon?: IconName;
+}
+
+export type SidebarElementView = SidebarCategoryView | SidebarLinkView | SidebarSeparatorView;
 
 export interface SidebarView {
 	readonly id: string;

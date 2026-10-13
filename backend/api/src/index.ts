@@ -13,3 +13,4 @@ export const foundation: FoundationIdentity = Object.freeze({
 export * from "./gateway.js";
 export * from "./administration-assets.js";
 export * from "./realtime.js";
+export * from "./native-catalog.js";
