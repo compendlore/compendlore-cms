@@ -70,8 +70,8 @@ approuvée par l’OSI.
 ### Avant de commencer
 
 1. Ouvrir ou rattacher une demande décrivant le problème et le résultat observable attendu.
-2. Travailler dans une branche courte issue de `dev`, cibler `dev` dans la pull request et n’utiliser
-   les forks que dans les limites de LICENSE.md.
+2. Travailler dans une branche courte issue de `dev`, cibler `dev` dans la pull request et
+   n’utiliser les forks que dans les limites de LICENSE.md.
 3. Ne jamais ajouter de secret, identifiant, donnée personnelle, élément confidentiel, donnée
    runtime, build généré ou configuration locale.
 4. Identifier les éléments tiers, leur source et leur licence. Obtenir toute autorisation nécessaire
