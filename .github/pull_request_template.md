@@ -14,6 +14,9 @@ Describe the need and the observable result.
 ### Verification
 
 - [ ] `npm run ci` succeeds
+- [ ] The pull request targets `dev`
+- [ ] No warning, deprecated API usage, lint finding, or static-analysis finding remains
+- [ ] Manual validation is not required, or its successful result is documented in this pull request
 - [ ] No secret, runtime file, or workspace documentation was added
 - [ ] Breaking changes are explicitly identified
 
@@ -33,5 +36,9 @@ Décrire le besoin et le résultat observable.
 ### Vérifications
 
 - [ ] `npm run ci` réussit
+- [ ] La pull request cible `dev`
+- [ ] Aucun avertissement, usage d’API obsolète ou résultat du lint ou de l’analyse statique ne
+      reste
+- [ ] La validation manuelle n’est pas requise ou son résultat positif est documenté ici
 - [ ] Aucun secret, fichier runtime ou document du workspace ajouté
 - [ ] Les changements incompatibles sont signalés

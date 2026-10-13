@@ -7,16 +7,22 @@ Thank you for contributing to Compendlore.
 ### Before starting
 
 1. Open or reference a request describing the problem and expected observable result.
-2. Work in a short-lived branch created from `main`.
+2. Work in a short-lived branch created from `dev` and target `dev` in the pull request.
 3. Never commit secrets, personal data, runtime data, generated builds, or local configuration.
 4. Add or update tests and the useful repository documentation.
-5. Run `npm run ci` before submitting the change.
+5. Run `npm run ci` before submitting the change. Resolve errors, warnings, deprecated API usage,
+   lint findings, and static-analysis findings before requesting integration.
+6. Complete and record manual validation when the change has a user-visible or environment-specific
+   acceptance path.
 
 ### Review
 
 Changes are integrated through pull requests. The branch must be current, all automated checks must
 pass, and at least one maintainer must approve it. Security, licensing, release, Core, and
 public-contract changes may require two approvals.
+
+`dev` is the integration branch. `main` only receives an explicitly validated promotion from `dev`
+for a stable release or an approved hotfix.
 
 ### Documentation
 
@@ -38,16 +44,22 @@ Merci de contribuer à Compendlore.
 ### Avant de commencer
 
 1. Ouvrir ou rattacher une demande décrivant le problème et le résultat attendu.
-2. Travailler dans une branche courte issue de `main`.
+2. Travailler dans une branche courte issue de `dev` et cibler `dev` dans la pull request.
 3. Ne jamais ajouter de secret, donnée personnelle ou donnée runtime.
 4. Ajouter ou adapter les tests et la documentation.
-5. Exécuter `npm run ci` avant de proposer la contribution.
+5. Exécuter `npm run ci` avant de proposer la contribution. Corriger les erreurs, avertissements,
+   usages d’API obsolètes et résultats du lint ou de l’analyse statique avant l’intégration.
+6. Effectuer et consigner la validation manuelle lorsqu’un parcours visible ou dépendant de
+   l’environnement doit être accepté.
 
 ### Revue
 
 Les changements sont intégrés par pull request. La branche doit être à jour, les contrôles
 automatiques doivent réussir et au moins un mainteneur doit approuver. Les zones sensibles peuvent
 exiger deux approbations.
+
+`dev` est la branche d’intégration. `main` reçoit uniquement une promotion explicitement validée
+depuis `dev` pour une version stable ou un correctif urgent approuvé.
 
 ### Documentation
 
