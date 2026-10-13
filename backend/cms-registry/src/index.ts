@@ -6,6 +6,7 @@ export const foundation = Object.freeze({
 
 export * from "./contracts.js";
 export * from "./messaging.js";
+export * from "./native-content.js";
 export * from "./statistics.js";
 export * from "./themes.js";
 export type { RegisteredMethodContext, RegisteredMethodHandler } from "./dispatcher.js";

@@ -1,4 +1,9 @@
-import type { CoreDatabase, SqlStatement, SqlValue, TransactionContext } from "../database.js";
+import type {
+	CoreDatabase,
+	SqlStatement,
+	SqlValue,
+	TransactionContext,
+} from "./database-contracts.js";
 import { CoreError } from "./errors.js";
 import type { CoreJsonValue } from "./store.js";
 import type {

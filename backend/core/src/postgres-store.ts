@@ -4,7 +4,7 @@ import {
 	type CoreDatabase,
 	type DatabaseResult,
 	type TransactionContext,
-} from "../database.js";
+} from "./database-contracts.js";
 import type {
 	AuditRecord,
 	CoreEmailAddress,

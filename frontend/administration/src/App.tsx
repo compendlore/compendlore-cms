@@ -7,89 +7,44 @@ import {
 	Field,
 	FrontendModuleRegistry,
 	Icon,
-	MainNavigationRegistry,
 	Modal,
 	ModuleOutlet,
-	NavigationResolver,
 	Notice,
 	PageHeader,
 	SelectField,
-	SidebarElementRegistry,
-	SidebarRegistry,
 	Switch,
 	Table,
 	Tabs,
+	navigationFromCatalog,
+	useNativeCatalog,
+	type CatalogNavigationLink,
 	type FrontendModuleProps,
+	type NativeCatalogDocument,
 } from "@compendlore/ui";
 
 const registry = new FrontendModuleRegistry();
 registry.register({
 	identifier: "core.admin.dashboard",
-	kind: "route",
-	path: "/admin",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: DashboardPage,
 });
 registry.register({
 	identifier: "core.admin.modules",
-	kind: "route",
-	path: "/admin/modules",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: ModulesPage,
 });
 registry.register({
 	identifier: "core.admin.interface",
-	kind: "route",
-	path: "/admin/interface",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: InterfacePage,
 });
 const capabilities = new Set<string>(["core.administration.access"]);
-const administrationSidebars = new SidebarRegistry();
-const administrationSidebarElements = new SidebarElementRegistry();
-const administrationNavigation = new NavigationResolver(
-	new MainNavigationRegistry(),
-	administrationSidebars,
-	administrationSidebarElements,
-);
-
-administrationSidebars.register({
-	identifier: "core.administration",
-	eyebrow: "Explorer",
-	title: "Administration",
-	subtitle: "Accès protégé par rôle et second facteur",
-	icon: "administration",
-	requiredCapability: "core.administration.access",
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.dashboard",
-	kind: "link",
-	label: "Pilotage",
-	href: "/admin",
-	icon: "administration",
-	description: "État du CMS",
-	order: 10,
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.modules",
-	kind: "link",
-	label: "Modules",
-	href: "/admin/modules",
-	icon: "menu",
-	description: "Contributions enregistrées",
-	order: 20,
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.interface",
-	kind: "link",
-	label: "Interface",
-	href: "/admin/interface",
-	icon: "settings",
-	description: "Composants du CMS",
-	order: 30,
-});
 
 export function App() {
+	const catalogState = useNativeCatalog("administration");
 	const [path, setPath] = useState(() =>
 		window.location.pathname === "/admin/" ? "/admin" : window.location.pathname,
 	);
@@ -106,30 +61,45 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
-	const sidebar = administrationNavigation.resolveSidebar(
-		"core.administration",
-		path,
-		capabilities,
-	);
+	if (catalogState.status !== "ready") {
+		return (
+			<ApplicationShell administration>
+				<Notice
+					tone={catalogState.status === "loading" ? "information" : "danger"}
+					title={
+						catalogState.status === "loading"
+							? "Chargement de l’administration"
+							: "Catalogue administratif indisponible"
+					}
+				>
+					{catalogState.status === "loading"
+						? "Les contributions autorisées sont en cours de résolution."
+						: "Votre session n’est plus autorisée ou le Core est indisponible."}
+				</Notice>
+			</ApplicationShell>
+		);
+	}
+	const navigation = navigationFromCatalog(catalogState.catalog, path);
+	const page = catalogState.catalog.pages.find((candidate) => candidate.route === path);
 	return (
 		<ApplicationShell
 			administration
-			sidebar={sidebar}
+			brand={navigation.brand}
+			primaryNavigation={navigation.primary}
+			sidebar={navigation.sidebar}
 			onNavigate={navigate}
 			actions={
 				<>
-					<a className="button" href="/">
-						<span>Voir le site</span>
-					</a>
-					<Button tone="danger" aria-label="Se déconnecter">
-						<Icon name="logout" />
-					</Button>
+					{navigation.actions.map((action) => (
+						<CatalogAction key={action.identifier} action={action} />
+					))}
 				</>
 			}
 		>
 			<ModuleOutlet
-				contribution={registry.resolveRoute(path, capabilities)}
-				context={{ capabilities, locale: navigator.language || "fr-FR" }}
+				contribution={page ? registry.resolve(page.identifier, capabilities) : undefined}
+				context={{ capabilities, locale: catalogState.catalog.locale }}
+				state={catalogState.catalog}
 				fallback={
 					<Notice tone="danger" title="Page administrative indisponible">
 						Cette route n’est pas enregistrée ou votre session ne possède plus la capacité requise.
@@ -137,6 +107,24 @@ export function App() {
 				}
 			/>
 		</ApplicationShell>
+	);
+}
+
+function CatalogAction({ action }: { readonly action: CatalogNavigationLink }) {
+	const icon = action.iconIdentifier as "account" | "administration" | "logout" | undefined;
+	if (action.mode === "route") {
+		return (
+			<a className="button button--secondary" href={action.target} title={action.tooltip}>
+				{icon ? <Icon name={icon} /> : null}
+				<span>{action.title}</span>
+			</a>
+		);
+	}
+	return (
+		<Button data-action={action.target} title={action.tooltip} tone="danger">
+			{icon ? <Icon name={icon} /> : null}
+			<span>{action.title}</span>
+		</Button>
 	);
 }
 
@@ -169,18 +157,42 @@ function DashboardPage(_props: FrontendModuleProps) {
 	);
 }
 
-function ModulesPage(_props: FrontendModuleProps) {
+function ModulesPage({ state }: FrontendModuleProps) {
+	const catalog = state as NativeCatalogDocument | undefined;
+	const contributions = catalog?.contributions ?? [];
 	return (
 		<>
 			<PageHeader
 				eyebrow="Administration · Registre"
-				title="Modules frontend"
-				description="Prévisualisation de l’hôte qui recevra les contributions métier à la phase suivante."
+				title="Contributions natives"
+				description="Inspectez la provenance, la version, l’état et les éléments matérialisés par le CMS Registry."
 			/>
-			<Notice tone="information" title="Fondation prête">
-				Les contrats sont actifs. Le catalogue métier sera raccordé pendant le premier parcours
-				vertical.
-			</Notice>
+			<Table
+				caption="Contributions actives, désactivées ou retirées"
+				columns={[
+					{ key: "key", title: "Contribution", render: (row) => row.contributionKey },
+					{
+						key: "owner",
+						title: "Propriétaire",
+						render: (row) => `${row.owner.kind} · ${row.owner.identifier}`,
+					},
+					{ key: "version", title: "Version", render: (row) => row.version },
+					{ key: "state", title: "État", render: (row) => row.state },
+					{
+						key: "content",
+						title: "Éléments",
+						render: (row) => Object.values(row.counts).reduce((total, count) => total + count, 0),
+					},
+					{
+						key: "lock",
+						title: "Protection",
+						render: (row) => (row.locked ? "Verrouillée" : "Gérée"),
+					},
+				]}
+				rows={contributions}
+				rowKey={(row) => row.contributionKey}
+				emptyLabel="Aucune contribution visible pour cette session."
+			/>
 		</>
 	);
 }

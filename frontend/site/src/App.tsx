@@ -5,33 +5,21 @@ import {
 	Card,
 	FrontendModuleRegistry,
 	Icon,
-	MainNavigationRegistry,
 	ModuleOutlet,
-	NavigationResolver,
+	Notice,
 	PageHeader,
-	SidebarElementRegistry,
-	SidebarRegistry,
+	navigationFromCatalog,
+	useNativeCatalog,
+	type CatalogNavigationLink,
 	type FrontendModuleProps,
 } from "@compendlore/ui";
 
 const registry = new FrontendModuleRegistry();
-registry.register({ identifier: "core.home", kind: "route", path: "/", component: HomePage });
+registry.register({ identifier: "core.home", kind: "page", component: HomePage });
 const capabilities = new Set<string>(["core.site.view"]);
-const mainNavigation = new MainNavigationRegistry();
-mainNavigation.register({
-	identifier: "core.home",
-	label: "Accueil",
-	href: "/",
-	visibility: "hidden",
-	systemRole: "home",
-});
-const navigationResolver = new NavigationResolver(
-	mainNavigation,
-	new SidebarRegistry(),
-	new SidebarElementRegistry(),
-);
 
 export function App() {
+	const catalogState = useNativeCatalog("site");
 	const [path, setPath] = useState(() => window.location.pathname);
 	useEffect(() => {
 		const update = () => setPath(window.location.pathname);
@@ -42,29 +30,61 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
-	const navigation = navigationResolver.resolve(path, capabilities);
+	if (catalogState.status !== "ready") {
+		return (
+			<ApplicationShell>
+				<Notice
+					tone={catalogState.status === "loading" ? "information" : "warning"}
+					title={
+						catalogState.status === "loading" ? "Chargement du site" : "Catalogue indisponible"
+					}
+				>
+					{catalogState.status === "loading"
+						? "Le Core prépare les contenus enregistrés."
+						: "Le site ne peut pas charger ses contributions pour le moment."}
+				</Notice>
+			</ApplicationShell>
+		);
+	}
+	const navigation = navigationFromCatalog(catalogState.catalog, path);
+	const page = catalogState.catalog.pages.find((candidate) => candidate.route === path);
 	return (
 		<ApplicationShell
-			primaryNavigation={navigation.mainLinks}
+			brand={navigation.brand}
+			primaryNavigation={navigation.primary}
 			sidebar={navigation.sidebar}
 			onNavigate={navigate}
 			actions={
 				<>
-					<Button aria-label="Compte utilisateur">
-						<Icon name="account" />
-					</Button>
-					<a className="button button--secondary" href="/admin">
-						<Icon name="administration" />
-						<span>Administration</span>
-					</a>
+					{navigation.actions.map((action) => (
+						<CatalogAction key={action.identifier} action={action} />
+					))}
 				</>
 			}
 		>
 			<ModuleOutlet
-				contribution={registry.resolveRoute(path, capabilities)}
-				context={{ capabilities, locale: navigator.language || "fr-FR" }}
+				contribution={page ? registry.resolve(page.identifier, capabilities) : undefined}
+				context={{ capabilities, locale: catalogState.catalog.locale }}
 			/>
 		</ApplicationShell>
+	);
+}
+
+function CatalogAction({ action }: { readonly action: CatalogNavigationLink }) {
+	const icon = action.iconIdentifier as "account" | "administration" | "logout" | undefined;
+	if (action.mode === "route") {
+		return (
+			<a className="button button--secondary" href={action.target} title={action.tooltip}>
+				{icon ? <Icon name={icon} /> : null}
+				<span>{action.title}</span>
+			</a>
+		);
+	}
+	return (
+		<Button data-action={action.target} title={action.tooltip}>
+			{icon ? <Icon name={icon} /> : null}
+			<span>{action.title}</span>
+		</Button>
 	);
 }
 
