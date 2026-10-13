@@ -28,9 +28,10 @@ registry.register({
 	component: UnavailablePage,
 });
 const capabilities = new Set<string>(["core.site.view"]);
+const apiOrigin = import.meta.env.VITE_API_ORIGIN ?? "http://localhost:4000";
 
 export function App() {
-	const catalogState = useNativeCatalog("site");
+	const catalogState = useNativeCatalog("site", apiOrigin);
 	const [path, setPath] = useState(() => window.location.pathname);
 	useEffect(() => {
 		const update = () => setPath(window.location.pathname);

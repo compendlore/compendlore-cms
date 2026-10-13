@@ -54,9 +54,10 @@ registry.register({
 	component: UnavailablePage,
 });
 const capabilities = new Set<string>(["core.administration.access"]);
+const apiOrigin = import.meta.env.VITE_API_ORIGIN ?? "http://localhost:4000";
 
 export function App() {
-	const catalogState = useNativeCatalog("administration");
+	const catalogState = useNativeCatalog("administration", apiOrigin);
 	const [path, setPath] = useState(() =>
 		window.location.pathname === "/admin/" ? "/admin" : window.location.pathname,
 	);

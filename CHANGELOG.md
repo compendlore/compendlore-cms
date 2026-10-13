@@ -51,7 +51,8 @@ until the release manager assigns a version and publication date.
 - Made API body limits compatible with Encore's compile-time requirements.
 - Separated contribution deployment history from the declarative schema journal.
 - Unified public and administrative development access without running a second Vite port.
-- Reserved `/api/*` for Encore and proxied these calls without exposing them to React routing.
+- Kept frontend and backend origins strictly separate: `/api/*` is requested directly from Encore
+  and is never exposed by the frontend server.
 - Overrode the vulnerable transitive KaTeX version.
 
 ### Release notes

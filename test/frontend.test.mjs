@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer, resolveConfig } from "vite";
+import { createServer } from "vite";
 import {
 	AdministrationAssetAccessError,
 	AdministrationBundleDelivery,
@@ -12,6 +12,7 @@ import {
 import {
 	ApplicationShell,
 	Button,
+	catalogEndpoint,
 	Card,
 	DateTimePicker,
 	FrontendModuleRegistry,
@@ -48,24 +49,26 @@ test("sert le site et l’administration depuis un seul serveur de développemen
 		const administrationDocument = await administration.text();
 		assert.match(administrationDocument, /<title>Administration — Lore &amp; Dice CMS<\/title>/);
 		assert.match(administrationDocument, /\/administration\/src\/main\.tsx/);
+		const api = await globalThis.fetch(`${origin}/api/catalog/site`, {
+			headers: { accept: "text/html" },
+		});
+		assert.equal(api.status, 404);
+		assert.equal(await api.text(), "Not Found");
 	} finally {
 		await server.close();
 	}
 });
 
-test("réserve les routes API au backend Encore", async () => {
-	const config = await resolveConfig(
-		{
-			configFile: fileURLToPath(new URL("../frontend/site/vite.config.ts", import.meta.url)),
-			root: fileURLToPath(new URL("../frontend/site", import.meta.url)),
-		},
-		"serve",
+test("adresse les API sur l’origine backend sans créer de route frontend", () => {
+	assert.equal(
+		catalogEndpoint("http://localhost:4000", "site"),
+		"http://localhost:4000/api/catalog/site",
 	);
-	const apiProxy = config.server.proxy?.["/api"];
-	assert.ok(apiProxy && typeof apiProxy === "object");
-	assert.equal(apiProxy.target, "http://localhost:4000");
-	assert.equal(apiProxy.changeOrigin, true);
-	assert.equal(apiProxy.rewrite, undefined);
+	assert.equal(
+		catalogEndpoint("https://api.example.test", "administration"),
+		"https://api.example.test/api/catalog/administration",
+	);
+	assert.throws(() => catalogEndpoint("https://example.test/backend", "site"));
 });
 
 test("refuse tout asset administratif avant rôle et second facteur", async () => {

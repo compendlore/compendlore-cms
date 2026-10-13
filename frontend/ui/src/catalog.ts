@@ -76,13 +76,16 @@ export type CatalogLoadState =
 	| { readonly status: "ready"; readonly catalog: NativeCatalogDocument }
 	| { readonly status: "unavailable" };
 
-export function useNativeCatalog(surface: "administration" | "site"): CatalogLoadState {
+export function useNativeCatalog(
+	surface: "administration" | "site",
+	apiOrigin: string,
+): CatalogLoadState {
 	const [state, setState] = useState<CatalogLoadState>({ status: "loading" });
 	useEffect(() => {
 		const controller = new AbortController();
-		void fetch(`/api/catalog/${surface}`, {
+		void fetch(catalogEndpoint(apiOrigin, surface), {
 			headers: { accept: "application/json", "accept-language": navigator.language || "en" },
-			credentials: "same-origin",
+			credentials: "include",
 			signal: controller.signal,
 		})
 			.then(async (response) => {
@@ -96,8 +99,16 @@ export function useNativeCatalog(surface: "administration" | "site"): CatalogLoa
 				}
 			});
 		return () => controller.abort();
-	}, [surface]);
+	}, [apiOrigin, surface]);
 	return state;
+}
+
+export function catalogEndpoint(apiOrigin: string, surface: "administration" | "site"): string {
+	const origin = new URL(apiOrigin);
+	if (origin.pathname !== "/" || origin.search || origin.hash) {
+		throw new Error("L’origine API ne doit contenir ni chemin, ni paramètres, ni fragment.");
+	}
+	return new URL(`/api/catalog/${surface}`, origin).toString();
 }
 
 export function navigationFromCatalog(

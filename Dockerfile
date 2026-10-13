@@ -10,6 +10,8 @@ USER node
 RUN npm ci
 
 FROM dependencies AS frontend-build
+ARG VITE_API_ORIGIN=http://localhost:4000
+ENV VITE_API_ORIGIN=${VITE_API_ORIGIN}
 RUN npm run build:frontend
 
 FROM nginx:1.28-alpine AS nginx-runtime

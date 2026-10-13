@@ -260,8 +260,10 @@ test("les applications React consomment le catalogue sans enregistrer leurs rout
 		readFile(new URL("../frontend/site/src/App.tsx", import.meta.url), "utf8"),
 		readFile(new URL("../frontend/administration/src/App.tsx", import.meta.url), "utf8"),
 	]);
-	assert.match(site, /useNativeCatalog\("site"\)/);
-	assert.match(administration, /useNativeCatalog\("administration"\)/);
+	assert.match(site, /useNativeCatalog\("site", apiOrigin\)/);
+	assert.match(administration, /useNativeCatalog\("administration", apiOrigin\)/);
+	assert.match(site, /VITE_API_ORIGIN/);
+	assert.match(administration, /VITE_API_ORIGIN/);
 	assert.doesNotMatch(site, /kind:\s*"route"/);
 	assert.doesNotMatch(administration, /kind:\s*"route"/);
 	assert.doesNotMatch(administration, /SidebarRegistry/);
