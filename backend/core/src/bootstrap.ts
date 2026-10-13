@@ -23,6 +23,19 @@ import type { CoreStore } from "./store.js";
 import { CoreSettingsService, InstallationStateService } from "./settings.js";
 import { CoreRestorationService } from "./restoration.js";
 import { CoreEventStream } from "./event-stream.js";
+import {
+	CoreSecurityAudit,
+	DefaultCoreSecurityBoundary,
+	type CoreSecurityBoundary,
+} from "./security-boundary.js";
+import {
+	InMemoryInstancePrivateKeyStore,
+	InstanceIdentityCryptography,
+	SecurityKernel,
+} from "../../security-kernel/src/index.js";
+import { CoreInstanceIdentityService } from "./instance-identity.js";
+
+const defaultInstancePrivateKeyStore = new InMemoryInstancePrivateKeyStore();
 
 export interface CoreApplication {
 	readonly instanceId: string;
@@ -36,6 +49,8 @@ export interface CoreApplication {
 	readonly installationState: InstallationStateService;
 	readonly restoration: CoreRestorationService;
 	readonly eventStream: CoreEventStream;
+	readonly securityBoundary: CoreSecurityBoundary;
+	readonly instanceIdentity: CoreInstanceIdentityService;
 	readonly objectStorage: ObjectStorage;
 	readonly tasks: TaskQueue;
 	readonly outbound: OutboundGateway;
@@ -51,6 +66,7 @@ export async function bootstrapCore(input: {
 	readonly objectStorage?: ObjectStorage;
 	readonly tasks?: TaskQueue;
 	readonly outbound?: OutboundGateway;
+	readonly instanceIdentityCryptography?: InstanceIdentityCryptography;
 	readonly now?: () => Date;
 }): Promise<CoreApplication> {
 	const [passwordPepper, csrfSecret, securityDigestSecret] = await Promise.all([
@@ -67,6 +83,14 @@ export async function bootstrapCore(input: {
 	try {
 		const instanceId = await ensureInstanceIdentity(input.store);
 		const now = input.now ?? (() => new Date());
+		const instanceIdentity = new CoreInstanceIdentityService(
+			instanceId,
+			input.store,
+			input.instanceIdentityCryptography ??
+				new InstanceIdentityCryptography(defaultInstancePrivateKeyStore),
+			now,
+		);
+		await instanceIdentity.ensure();
 		const installationTokens = new InstallationTokenService(
 			instanceId,
 			input.store,
@@ -77,6 +101,9 @@ export async function bootstrapCore(input: {
 		);
 		await installationTokens.ensureAvailable();
 		const accountSecurity = new AccountSecurityService(input.store, securityDigestSecret, now);
+		const securityBoundary = new DefaultCoreSecurityBoundary(
+			new SecurityKernel(new CoreSecurityAudit(input.store, securityDigestSecret), 30_000, now),
+		);
 		const authentication = new AuthenticationService(
 			input.store,
 			new PasswordHasher(passwordPepper),
@@ -100,6 +127,8 @@ export async function bootstrapCore(input: {
 			installationState: new InstallationStateService(instanceId, input.store),
 			restoration: new CoreRestorationService(input.store),
 			eventStream: new CoreEventStream(input.store, securityDigestSecret),
+			securityBoundary,
+			instanceIdentity,
 			objectStorage: input.objectStorage ?? new InMemoryObjectStorage(),
 			tasks: input.tasks ?? new InMemoryTaskQueue(),
 			outbound: input.outbound ?? new OutboundGateway(input.config.outboundHosts),

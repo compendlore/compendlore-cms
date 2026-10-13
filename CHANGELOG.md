@@ -22,6 +22,10 @@ until the release manager assigns a version and publication date.
   event ordering, idempotency, consumer cursors, retention, and deactivation.
 - Added the bilingual community code of conduct, governance policy, and trademark policy from the
   repository’s initial revision.
+- Connected Security Kernel decisions to the durable Core security-attempt store without retaining
+  raw subject or resource identifiers.
+- Added a stable Ed25519 instance identity, protected private-key storage, public Core persistence,
+  drift detection, and bounded proof-of-possession challenges.
 
 ### Changed
 
@@ -58,6 +62,8 @@ until the release manager assigns a version and publication date.
 - Bound CSRF protection and login limits to authenticated sessions, made logout idempotent, and
   completed security auditing for login, second-factor, and administrative access decisions.
 - Made API body limits compatible with Encore's compile-time requirements.
+- Made Security Kernel evidence authentic, operation-bound, resource-bound, expiring, and single-use
+  so a reconstructed or replayed proof is rejected.
 - Separated contribution deployment history from the declarative schema journal.
 - Unified public and administrative development access without running a second Vite port.
 - Overrode the vulnerable transitive KaTeX version.

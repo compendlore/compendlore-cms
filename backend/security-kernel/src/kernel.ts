@@ -106,6 +106,8 @@ export class InMemorySecurityAudit implements SecurityAuditPort {
 }
 
 export class SecurityKernel {
+	private readonly issuedEvidence = new Map<string, SecurityEvidence>();
+
 	constructor(
 		private readonly audit: SecurityAuditPort = new InMemorySecurityAudit(),
 		private readonly evidenceTtlMs = 30_000,
@@ -118,6 +120,7 @@ export class SecurityKernel {
 		readonly context: SecurityContext;
 		readonly policy: InputSecurityPolicy;
 	}): Promise<SecurityDecision<T>> {
+		this.purgeExpiredEvidence();
 		const evidenceId = randomUUID();
 		const deny = async (
 			status: "denied" | "reauthentication-required" | "step-up-required",
@@ -177,6 +180,7 @@ export class SecurityKernel {
 			[securedInputBrand]: true as const,
 		};
 		await this.record(input, evidenceId, "allowed");
+		this.issuedEvidence.set(evidence.id, evidence);
 		return { status: "allowed", secured };
 	}
 
@@ -222,12 +226,23 @@ export class SecurityKernel {
 		evidence: SecurityEvidence,
 		expected: { readonly operation: string; readonly resource?: SecurityResource },
 	): void {
+		const issued = this.issuedEvidence.get(evidence.id);
 		if (
-			evidence.expiresAt.getTime() <= this.now().getTime() ||
-			evidence.operation !== expected.operation ||
-			!sameResource(evidence.resource, expected.resource)
+			!issued ||
+			!sameEvidence(issued, evidence) ||
+			issued.expiresAt.getTime() <= this.now().getTime() ||
+			issued.operation !== expected.operation ||
+			!sameResource(issued.resource, expected.resource)
 		) {
 			throw new SecurityKernelError("security.evidence_invalid");
+		}
+		this.issuedEvidence.delete(evidence.id);
+	}
+
+	private purgeExpiredEvidence(): void {
+		const now = this.now().getTime();
+		for (const [identifier, evidence] of this.issuedEvidence) {
+			if (evidence.expiresAt.getTime() <= now) this.issuedEvidence.delete(identifier);
 		}
 	}
 
@@ -332,4 +347,16 @@ function sameResource(
 ): boolean {
 	if (!first || !second) return first === second;
 	return first.kind === second.kind && first.identifier === second.identifier;
+}
+
+function sameEvidence(first: SecurityEvidence, second: SecurityEvidence): boolean {
+	return (
+		first.id === second.id &&
+		first.operation === second.operation &&
+		first.policyIdentifier === second.policyIdentifier &&
+		first.policyVersion === second.policyVersion &&
+		first.issuedAt.getTime() === second.issuedAt.getTime() &&
+		first.expiresAt.getTime() === second.expiresAt.getTime() &&
+		sameResource(first.resource, second.resource)
+	);
 }

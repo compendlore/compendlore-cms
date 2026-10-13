@@ -10,6 +10,10 @@ import type { SecretProvider } from "./services.js";
 import { OutboundGateway } from "./services.js";
 import { encoreObjectStorage } from "../object-storage.js";
 import { PostgresTaskQueue } from "../task-queue.js";
+import {
+	InstanceIdentityCryptography,
+	SecureFileInstancePrivateKeyStore,
+} from "../../security-kernel/src/index.js";
 
 export async function bootstrapEncoreCore(input: {
 	readonly config: CoreConfig;
@@ -26,6 +30,9 @@ export async function bootstrapEncoreCore(input: {
 		logger: input.logger,
 		installationTokenPublisher: new SecureFileInstallationTokenPublisher(
 			input.config.installationTokenFile,
+		),
+		instanceIdentityCryptography: new InstanceIdentityCryptography(
+			new SecureFileInstancePrivateKeyStore(input.config.instancePrivateKeyFile),
 		),
 		services: [coreDatabase, objectStorage, ...(input.services ?? [])],
 		objectStorage,

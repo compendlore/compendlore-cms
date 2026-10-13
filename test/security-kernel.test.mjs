@@ -1,12 +1,58 @@
 import assert from "node:assert/strict";
+import { createPublicKey, verify } from "node:crypto";
 import test from "node:test";
 import { TextEncoder } from "node:util";
 import {
 	FileSecurityAnalyzer,
+	InMemoryInstancePrivateKeyStore,
 	InMemorySecurityAudit,
+	InstanceIdentityCryptography,
+	InstanceIdentityError,
 	SecurityKernel,
 	SecurityKernelError,
 } from "../backend/build/security-kernel/src/index.js";
+
+test("crée une identité Ed25519 stable sans exposer la clé privée", async () => {
+	const instanceId = "00000000-0000-4000-8000-000000000099";
+	const store = new InMemoryInstancePrivateKeyStore();
+	const cryptography = new InstanceIdentityCryptography(store);
+	const first = await cryptography.ensure(instanceId);
+	const second = await cryptography.ensure(instanceId);
+	const payload = Buffer.from("instance-possession-challenge", "utf8");
+	const signature = await cryptography.sign(instanceId, payload);
+	const publicKey = createPublicKey({
+		key: Buffer.from(first.publicKey),
+		format: "der",
+		type: "spki",
+	});
+
+	assert.equal(first.algorithm, "Ed25519");
+	assert.equal(first.identifier, second.identifier);
+	assert.deepEqual(first.publicKey, second.publicKey);
+	assert.equal(verify(null, payload, publicKey, signature), true);
+	assert.equal("privateKey" in first, false);
+	assert.equal("privateKeyPem" in first, false);
+	assert.match(first.keyReference, /^memory:instance-identity:/u);
+});
+
+test("refuse une clé d’instance absente ou invalide", async () => {
+	const instanceId = "00000000-0000-4000-8000-000000000098";
+	const missing = new InstanceIdentityCryptography({
+		async load() {
+			return undefined;
+		},
+		async create() {
+			return {
+				privateKeyPem: "not-a-private-key",
+				reference: "test:invalid",
+				assurance: "system",
+			};
+		},
+	});
+
+	await assert.rejects(missing.ensure(instanceId), InstanceIdentityError);
+	await assert.rejects(missing.sign(instanceId, Buffer.from("challenge")), InstanceIdentityError);
+});
 
 const context = {
 	correlationId: "security-test-correlation",
@@ -46,7 +92,45 @@ test("produit une preuve bornée pour une entrée autorisée", async () => {
 	assert.throws(
 		() =>
 			kernel.assertEvidence(decision.secured.evidence, {
-				operation: "entity.delete",
+				operation: "entity.update",
+				resource: context.resource,
+			}),
+		SecurityKernelError,
+	);
+
+	const secondDecision = await kernel.secureInput({
+		operation: "entity.update",
+		value: { title: "Caerthia" },
+		context,
+		policy: {
+			identifier: "core.entity.update",
+			version: "1.0.0",
+			allowAnonymous: false,
+			requiredCapabilities: ["content.update"],
+		},
+	});
+	assert.equal(secondDecision.status, "allowed");
+	assert.throws(
+		() =>
+			kernel.assertEvidence(
+				{ ...secondDecision.secured.evidence, policyVersion: "9.9.9" },
+				{
+					operation: "entity.update",
+					resource: context.resource,
+				},
+			),
+		SecurityKernelError,
+	);
+	assert.doesNotThrow(() =>
+		kernel.assertEvidence(secondDecision.secured.evidence, {
+			operation: "entity.update",
+			resource: context.resource,
+		}),
+	);
+	assert.throws(
+		() =>
+			kernel.assertEvidence(secondDecision.secured.evidence, {
+				operation: "entity.update",
 				resource: context.resource,
 			}),
 		SecurityKernelError,
