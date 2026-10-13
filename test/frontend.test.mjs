@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer } from "vite";
+import { createServer, resolveConfig } from "vite";
 import {
 	AdministrationAssetAccessError,
 	AdministrationBundleDelivery,
@@ -51,6 +51,21 @@ test("sert le site et l’administration depuis un seul serveur de développemen
 	} finally {
 		await server.close();
 	}
+});
+
+test("réserve les routes API au backend Encore", async () => {
+	const config = await resolveConfig(
+		{
+			configFile: fileURLToPath(new URL("../frontend/site/vite.config.ts", import.meta.url)),
+			root: fileURLToPath(new URL("../frontend/site", import.meta.url)),
+		},
+		"serve",
+	);
+	const apiProxy = config.server.proxy?.["/api"];
+	assert.ok(apiProxy && typeof apiProxy === "object");
+	assert.equal(apiProxy.target, "http://localhost:4000");
+	assert.equal(apiProxy.changeOrigin, true);
+	assert.equal(apiProxy.rewrite, undefined);
 });
 
 test("refuse tout asset administratif avant rôle et second facteur", async () => {

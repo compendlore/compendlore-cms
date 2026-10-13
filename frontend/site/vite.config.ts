@@ -20,6 +20,10 @@ export default defineConfig({
 		host: true,
 		strictPort: true,
 		proxy: {
+			"/api": {
+				target: "http://localhost:4000",
+				changeOrigin: true,
+			},
 			"/backend": {
 				target: "http://localhost:4000",
 				changeOrigin: true,
