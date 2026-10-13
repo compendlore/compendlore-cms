@@ -10,8 +10,10 @@
 		"types": ["node"],
 		"paths": {
 			"encore.dev/api": ["../node_modules/encore.dev/dist/api/mod.d.ts"],
+			"encore.dev/log": ["../node_modules/encore.dev/dist/log/mod.d.ts"],
 			"encore.dev/service": ["../node_modules/encore.dev/dist/service/mod.d.ts"],
-			"encore.dev/storage/sqldb": ["../node_modules/encore.dev/dist/storage/sqldb/mod.d.ts"]
+			"encore.dev/storage/sqldb": ["../node_modules/encore.dev/dist/storage/sqldb/mod.d.ts"],
+			"encore.dev/storage/objects": ["../node_modules/encore.dev/dist/storage/objects/mod.d.ts"]
 		}
 	},
 	"include": ["**/*.ts"],

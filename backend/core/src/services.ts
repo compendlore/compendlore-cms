@@ -49,6 +49,13 @@ export class InMemoryObjectStorage implements ObjectStorage {
 	}
 }
 
+export interface TaskQueue {
+	schedule(task: Omit<ScheduledTask, "id">): Promise<ScheduledTask>;
+	claimDue(at: Date, limit?: number): Promise<readonly ScheduledTask[]>;
+	complete(taskId: string): Promise<void>;
+	fail(taskId: string): Promise<void>;
+}
+
 export type CommunicationTarget =
 	| { readonly kind: "all" }
 	| { readonly kind: "group" | "role"; readonly id: string }
@@ -177,27 +184,58 @@ export interface ScheduledTask {
 	readonly executeAt: Date;
 }
 
-export class InMemoryTaskQueue {
+export class InMemoryTaskQueue implements TaskQueue {
 	private readonly tasks = new Map<string, ScheduledTask>();
 
-	schedule(task: Omit<ScheduledTask, "id">): ScheduledTask {
+	async schedule(task: Omit<ScheduledTask, "id">): Promise<ScheduledTask> {
+		validateScheduledTask(task);
 		const scheduled = { ...task, id: randomUUID() };
 		this.tasks.set(scheduled.id, scheduled);
 		return scheduled;
 	}
 
-	due(at: Date): readonly ScheduledTask[] {
-		return [...this.tasks.values()].filter((task) => task.executeAt <= at);
+	async claimDue(at: Date, limit = 100): Promise<readonly ScheduledTask[]> {
+		validateTaskLimit(limit);
+		return [...this.tasks.values()]
+			.filter((task) => task.executeAt <= at)
+			.sort((left, right) => left.executeAt.getTime() - right.executeAt.getTime())
+			.slice(0, limit);
 	}
 
-	complete(taskId: string): void {
+	async complete(taskId: string): Promise<void> {
+		this.tasks.delete(taskId);
+	}
+
+	async fail(taskId: string): Promise<void> {
 		this.tasks.delete(taskId);
 	}
 }
 
-function validateStorageKey(key: string): string {
+export function validateStorageKey(key: string): string {
 	if (!/^[a-z0-9][a-z0-9/_\-.]{0,511}$/i.test(key) || key.includes("..") || key.startsWith("/")) {
 		throw new CoreError("storage.invalid_key", "La clé de stockage est invalide.");
 	}
 	return key;
+}
+
+export function validateScheduledTask(task: Omit<ScheduledTask, "id">): void {
+	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(task.type) || task.type.length > 160) {
+		throw new CoreError("configuration.invalid", "Le type de tâche est invalide.");
+	}
+	if (!(task.executeAt instanceof Date) || !Number.isFinite(task.executeAt.getTime())) {
+		throw new CoreError("configuration.invalid", "La date d’exécution est invalide.");
+	}
+	try {
+		JSON.stringify(task.payload);
+	} catch (error) {
+		throw new CoreError("configuration.invalid", "La charge utile de la tâche est invalide.", {
+			cause: error,
+		});
+	}
+}
+
+export function validateTaskLimit(limit: number): void {
+	if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 500) {
+		throw new CoreError("configuration.invalid", "La taille du lot de tâches est invalide.");
+	}
 }

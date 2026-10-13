@@ -8,10 +8,14 @@ import {
 	CoreError,
 	CoreEventStream,
 	CoreRuntime,
+	CoreRestorationService,
 	CsrfProtection,
+	ensureInstanceIdentity,
 	InMemoryCoreStore,
 	InMemoryObjectStorage,
+	InMemoryTaskQueue,
 	loadCoreConfig,
+	ManagedObjectStorage,
 	MemoryLogger,
 	OutboundGateway,
 	RateLimiter,
@@ -85,22 +89,144 @@ test("initialise une instance vide et protège l'administration par 2FA", async 
 		"correct horse battery staple",
 		"test-login",
 	);
+	const sessionCsrf = await application.sessionSecurity.issueCsrf(authenticated.token);
+	assert.equal(
+		(await application.sessionSecurity.verifyCsrf(authenticated.token, sessionCsrf)).user.id,
+		founder.id,
+	);
 	await assert.rejects(
-		application.authentication.requireAdministration(authenticated.token),
+		application.sessionSecurity.verifyCsrf(authenticated.token, "invalid-csrf-token"),
+		(error) => error instanceof CoreError && error.code === "security.csrf_invalid",
+	);
+	await assert.rejects(
+		application.authentication.requireAdministration(authenticated.token, "test-admin-denied"),
 		(error) => error instanceof CoreError && error.code === "authentication.two_factor_required",
 	);
 	await store.setTwoFactor(founder.id, {
 		secret: "JBSWY3DPEHPK3PXP",
 		recoveryCodeDigests: new Set([securityDigest("recovery-code")]),
 	});
-	await application.twoFactor.verify(authenticated.session, "recovery-code");
+	await assert.rejects(
+		application.twoFactor.verify(authenticated.session, "000000", "test-two-factor-denied"),
+		(error) => error instanceof CoreError && error.code === "authentication.invalid_credentials",
+	);
+	await application.twoFactor.verify(
+		authenticated.session,
+		"recovery-code",
+		"test-two-factor-allowed",
+	);
 	assert.equal(
-		(await application.authentication.requireAdministration(authenticated.token)).user.id,
+		(
+			await application.authentication.requireAdministration(
+				authenticated.token,
+				"test-admin-allowed",
+			)
+		).user.id,
 		founder.id,
 	);
 	await application.authentication.revoke(authenticated.token, "test-revoke");
+	await application.authentication.revoke(authenticated.token, "test-revoke-idempotent");
 	await assert.rejects(application.authentication.authenticate(authenticated.token), CoreError);
 	await assert.rejects(store.setUserActive(founder.id, false), CoreError);
+	assert.deepEqual(
+		store.auditRecords
+			.filter((record) =>
+				["security.administration.access", "security.two_factor.verify"].includes(record.action),
+			)
+			.map((record) => [record.action, record.outcome]),
+		[
+			["security.administration.access", "denied"],
+			["security.two_factor.verify", "denied"],
+			["security.two_factor.verify", "allowed"],
+			["security.administration.access", "allowed"],
+		],
+	);
+	await application.runtime.stop();
+});
+
+test("limite les connexions, expire les sessions et audite les refus", async () => {
+	let now = new Date("2026-10-13T20:00:00.000Z");
+	let installationToken;
+	const store = new InMemoryCoreStore();
+	const application = await bootstrapCore({
+		config: loadCoreConfig({
+			CORE_ENVIRONMENT: "test",
+			CORE_PUBLIC_ORIGIN: "http://localhost:4000",
+			CORE_PASSWORD_PEPPER_SECRET_REF: "test:pepper",
+			CORE_CSRF_SECRET_REF: "test:csrf",
+			CORE_DATA_ENCRYPTION_SECRET_REF: "test:encryption",
+			CORE_SECURITY_DIGEST_SECRET_REF: "test:security-digest",
+			CORE_SESSION_TTL_MS: "1000",
+			CORE_ADMIN_SESSION_TTL_MS: "500",
+			CORE_LOGIN_ATTEMPT_LIMIT: "2",
+			CORE_LOGIN_ATTEMPT_WINDOW_MS: "60000",
+		}),
+		store,
+		secrets,
+		logger: new MemoryLogger(),
+		installationTokenPublisher: {
+			async publish(token) {
+				installationToken = token;
+			},
+			async clear() {
+				installationToken = undefined;
+			},
+		},
+		now: () => now,
+	});
+
+	await application.authentication.createFounder({
+		login: "limited-founder",
+		displayName: "Limited Founder",
+		password: "correct horse battery staple",
+		installationToken,
+		correlationId: "rate-founder",
+	});
+	for (const correlationId of ["rate-failure-1", "rate-failure-2"]) {
+		await assert.rejects(
+			application.authentication.login("limited-founder", "invalid password", correlationId, {
+				address: "192.0.2.10",
+			}),
+			(error) => error instanceof CoreError && error.code === "authentication.invalid_credentials",
+		);
+	}
+	await assert.rejects(
+		application.authentication.login(
+			"limited-founder",
+			"correct horse battery staple",
+			"rate-blocked",
+			{ address: "192.0.2.10" },
+		),
+		(error) => error instanceof CoreError && error.code === "security.rate_limited",
+	);
+
+	now = new Date(now.getTime() + 60_001);
+	const authenticated = await application.authentication.login(
+		"limited-founder",
+		"correct horse battery staple",
+		"rate-recovered",
+		{ address: "192.0.2.10" },
+	);
+	now = new Date(now.getTime() + 1_001);
+	await assert.rejects(
+		application.authentication.authenticate(authenticated.token),
+		(error) => error instanceof CoreError && error.code === "authentication.session_expired",
+	);
+	await application.authentication.revoke(authenticated.token, "expired-revoke");
+	await application.authentication.revoke(authenticated.token, "expired-revoke-again");
+
+	assert.equal(
+		store.auditRecords.some(
+			(record) => record.action === "security.login" && record.correlationId === "rate-blocked",
+		),
+		true,
+	);
+	assert.equal(
+		store.securityAttemptRecords.some(
+			(record) => record.kind === "login" && record.outcome === "blocked",
+		),
+		true,
+	);
 	await application.runtime.stop();
 });
 
@@ -163,11 +289,106 @@ test("annule le démarrage partiel et arrête les services dans l'ordre inverse"
 	]);
 });
 
-test("applique les règles de stockage et de communication directe", async () => {
+test("conserve l’identifiant unique de l’instance entre les démarrages", async () => {
+	const store = new InMemoryCoreStore();
+	const first = await ensureInstanceIdentity(store);
+	const second = await ensureInstanceIdentity(store);
+
+	assert.match(first, /^[0-9a-f-]{36}$/u);
+	assert.equal(second, first);
+});
+
+test("borne l’arrêt d’un service qui ne répond plus", async () => {
+	const logger = new MemoryLogger();
+	const runtime = new CoreRuntime(
+		[
+			{
+				name: "blocked",
+				async start() {},
+				async stop() {
+					await new Promise(() => undefined);
+				},
+				async health() {
+					return "healthy";
+				},
+			},
+		],
+		logger,
+		5,
+	);
+
+	await runtime.start();
+	await runtime.stop();
+
+	assert.equal(runtime.state, "stopped");
+	assert.equal(
+		logger.entries.some(
+			(entry) => entry.event === "core.service_stop_failed" && entry.context.reason === "timeout",
+		),
+		true,
+	);
+});
+
+test("valide les services fondamentaux de stockage, tâches et communication", async () => {
 	const storage = new InMemoryObjectStorage();
 	await storage.put("core/audit/item.json", new Uint8Array([1, 2, 3]), "application/json");
 	assert.deepEqual(await storage.get("core/audit/item.json"), new Uint8Array([1, 2, 3]));
 	await assert.rejects(storage.put("../secret", new Uint8Array(), "text/plain"), CoreError);
+
+	const objects = new Map();
+	const managedStorage = new ManagedObjectStorage({
+		async upload(name, data) {
+			objects.set(name, Buffer.from(data));
+		},
+		async download(name) {
+			return Buffer.from(objects.get(name));
+		},
+		async exists(name) {
+			return objects.has(name);
+		},
+		async remove(name) {
+			objects.delete(name);
+		},
+	});
+	assert.equal(await managedStorage.health(), "healthy");
+	await managedStorage.put("core/files/item.txt", new Uint8Array([4, 5]), "text/plain");
+	assert.deepEqual(await managedStorage.get("core/files/item.txt"), new Uint8Array([4, 5]));
+	await managedStorage.delete("core/files/item.txt");
+	assert.equal(await managedStorage.get("core/files/item.txt"), undefined);
+	const unavailableStorage = new ManagedObjectStorage({
+		async upload() {
+			throw new Error("unavailable");
+		},
+		async download() {
+			throw new Error("unavailable");
+		},
+		async exists() {
+			throw new Error("unavailable");
+		},
+		async remove() {
+			throw new Error("unavailable");
+		},
+	});
+	assert.equal(await unavailableStorage.health(), "unhealthy");
+	await assert.rejects(unavailableStorage.start(), CoreError);
+
+	const tasks = new InMemoryTaskQueue();
+	const firstTask = await tasks.schedule({
+		type: "core.test.first",
+		payload: { order: 1 },
+		executeAt: new Date("2026-10-13T10:00:00.000Z"),
+	});
+	await tasks.schedule({
+		type: "core.test.second",
+		payload: { order: 2 },
+		executeAt: new Date("2026-10-13T11:00:00.000Z"),
+	});
+	assert.deepEqual(
+		(await tasks.claimDue(new Date("2026-10-13T10:30:00.000Z"))).map((task) => task.id),
+		[firstTask.id],
+	);
+	await tasks.complete(firstTask.id);
+	assert.deepEqual(await tasks.claimDue(new Date("2026-10-13T10:30:00.000Z")), []);
 
 	const delivered = [];
 	const communications = new CommunicationService({
@@ -195,7 +416,11 @@ test("applique les règles de stockage et de communication directe", async () =>
 test("fournit un flux d’événements durable et agnostique pour les modules", async () => {
 	const store = new InMemoryCoreStore();
 	let now = new Date("2026-10-10T00:00:00.000Z");
-	const events = new CoreEventStream(store, () => now);
+	const events = new CoreEventStream(
+		store,
+		"event-integrity-key-with-sufficient-entropy",
+		() => now,
+	);
 	await events.registerConsumer({
 		identifier: "addon.statistics.ingestion",
 		ownerIdentifier: "addon.statistics",
@@ -239,6 +464,8 @@ test("fournit un flux d’événements durable et agnostique pour les modules", 
 	});
 
 	assert.equal(duplicate.id, published.id);
+	assert.match(published.payloadChecksum, /^[0-9a-f]{64}$/);
+	assert.match(published.signature, /^[0-9a-f]{64}$/);
 	assert.equal((await events.read("addon.statistics.ingestion")).length, 1);
 	now = new Date("2026-10-12T00:00:00.000Z");
 	assert.equal(await events.purgeExpired(), 1);
@@ -246,6 +473,22 @@ test("fournit un flux d’événements durable et agnostique pour les modules", 
 	assert.equal((await events.read("addon.statistics.ingestion")).length, 0);
 	assert.equal(await events.purgeExpired(), 1);
 	await events.deactivateConsumer("addon.statistics.ingestion");
+	await events.registerConsumer({
+		identifier: "core.integrity.validation",
+		ownerIdentifier: "core.validation",
+		topics: ["core.integrity.tampered"],
+		startAt: "earliest",
+	});
+	const { sequence, ...tampered } = published;
+	assert.ok(sequence > 0n);
+	await store.appendEvent({
+		...tampered,
+		id: "00000000-0000-4000-8000-000000000037",
+		topic: "core.integrity.tampered",
+		payload: { page: "tampered", authenticated: false },
+		idempotencyKey: "tampered-event",
+	});
+	await assert.rejects(events.read("core.integrity.validation"), CoreError);
 
 	await assert.rejects(
 		events.registerConsumer({
@@ -497,4 +740,13 @@ test("restaure atomiquement une sauvegarde Core sans sessions temporaires", asyn
 	assert.equal(await store.hasCapability(userId, "core.administration.access"), true);
 	await assert.rejects(application.restoration.restore(bundle), CoreError);
 	await application.runtime.stop();
+
+	class FailingRestorationStore extends InMemoryCoreStore {
+		async upsertEmailAddress() {
+			throw new CoreError("infrastructure.unavailable", "Échec de restauration simulé.");
+		}
+	}
+	const failingStore = new FailingRestorationStore();
+	await assert.rejects(new CoreRestorationService(failingStore).restore(bundle), CoreError);
+	assert.equal(await failingStore.countUsers(), 0);
 });
