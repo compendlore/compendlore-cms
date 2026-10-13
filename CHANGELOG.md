@@ -55,6 +55,8 @@ until the release manager assigns a version and publication date.
   and is never exposed by the frontend server.
 - Composed the native site catalog during Encore API startup instead of leaving its endpoint
   permanently unavailable.
+- Guarded the administration document and development sources before delivery, redirecting denied or
+  non-2FA navigation to the public home page without loading the administration application.
 - Overrode the vulnerable transitive KaTeX version.
 
 ### Release notes

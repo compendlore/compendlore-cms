@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { readFile } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, normalizePath, type Plugin } from "vite";
@@ -9,6 +10,9 @@ const administrationDocumentPath = resolve(currentDirectory, "../administration/
 const administrationEntryPath = normalizePath(
 	resolve(currentDirectory, "../administration/src/main.tsx"),
 );
+const administrationSourcePrefix = `/@fs/${normalizePath(
+	resolve(currentDirectory, "../administration"),
+)}/`;
 
 export default defineConfig({
 	envDir: resolve(currentDirectory, "../.."),
@@ -50,17 +54,32 @@ function administrationDevelopmentHost(): Plugin {
 		configureServer(server) {
 			server.middlewares.use(async (request, response, next) => {
 				const accept = request.headers.accept ?? "";
-				const pathname = new URL(request.url ?? "/", "http://frontend.local").pathname;
-				if (
-					request.method !== "GET" ||
-					!accept.includes("text/html") ||
-					!/^\/admin(?:\/|$)/.test(pathname)
-				) {
+				const pathname = decodeURIComponent(
+					new URL(request.url ?? "/", "http://frontend.local").pathname,
+				);
+				const administrationDocument =
+					request.method === "GET" &&
+					accept.includes("text/html") &&
+					/^\/admin(?:\/|$)/.test(pathname);
+				const administrationSource =
+					request.method === "GET" && pathname.startsWith(administrationSourcePrefix);
+				if (!administrationDocument && !administrationSource) {
 					next();
 					return;
 				}
 
 				try {
+					if (!(await hasAdministrationAccess(request, server.config.env.VITE_API_ORIGIN))) {
+						response.statusCode = administrationDocument ? 302 : 404;
+						response.setHeader("cache-control", "no-store");
+						if (administrationDocument) response.setHeader("location", "/");
+						response.end();
+						return;
+					}
+					if (administrationSource) {
+						next();
+						return;
+					}
 					const source = await readFile(administrationDocumentPath, "utf8");
 					const document = source.replace(
 						'src="/src/main.tsx"',
@@ -76,4 +95,24 @@ function administrationDevelopmentHost(): Plugin {
 			});
 		},
 	};
+}
+
+async function hasAdministrationAccess(
+	request: IncomingMessage,
+	apiOrigin = "http://localhost:4000",
+): Promise<boolean> {
+	try {
+		const authorization = request.headers.authorization;
+		const cookie = request.headers.cookie;
+		const result = await fetch(new URL("/api/catalog/administration", apiOrigin), {
+			headers: {
+				accept: "application/json",
+				...(typeof authorization === "string" ? { authorization } : {}),
+				...(typeof cookie === "string" ? { cookie } : {}),
+			},
+		});
+		return result.ok;
+	} catch {
+		return false;
+	}
 }

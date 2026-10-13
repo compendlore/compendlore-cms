@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer as createHttpServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -28,6 +29,26 @@ import {
 } from "../frontend/ui/build/types/index.js";
 
 test("sert le site et l’administration depuis un seul serveur de développement", async () => {
+	const backend = createHttpServer((request, response) => {
+		if (
+			request.url === "/api/catalog/administration" &&
+			request.headers.cookie === "compendlore-admin=verified"
+		) {
+			response.statusCode = 200;
+			response.end("{}");
+			return;
+		}
+		response.statusCode = 403;
+		response.end();
+	});
+	await new Promise((resolve, reject) => {
+		backend.once("error", reject);
+		backend.listen(0, "127.0.0.1", resolve);
+	});
+	const backendAddress = backend.address();
+	assert.ok(backendAddress && typeof backendAddress === "object");
+	const previousApiOrigin = process.env.VITE_API_ORIGIN;
+	process.env.VITE_API_ORIGIN = `http://127.0.0.1:${backendAddress.port}`;
 	const server = await createServer({
 		configFile: fileURLToPath(new URL("../frontend/site/vite.config.ts", import.meta.url)),
 		logLevel: "silent",
@@ -40,15 +61,31 @@ test("sert le site et l’administration depuis un seul serveur de développemen
 		assert.ok(address && typeof address === "object");
 		const origin = `http://127.0.0.1:${address.port}`;
 		const site = await globalThis.fetch(`${origin}/`, { headers: { accept: "text/html" } });
-		const administration = await globalThis.fetch(`${origin}/admin`, {
+		const deniedAdministration = await globalThis.fetch(`${origin}/admin`, {
+			redirect: "manual",
 			headers: { accept: "text/html" },
 		});
 		assert.equal(site.status, 200);
 		assert.match(await site.text(), /<title>Lore &amp; Dice CMS<\/title>/);
+		assert.equal(deniedAdministration.status, 302);
+		assert.equal(deniedAdministration.headers.get("location"), "/");
+		assert.equal(await deniedAdministration.text(), "");
+		const administration = await globalThis.fetch(`${origin}/admin`, {
+			headers: {
+				accept: "text/html",
+				cookie: "compendlore-admin=verified",
+			},
+		});
 		assert.equal(administration.status, 200);
 		const administrationDocument = await administration.text();
 		assert.match(administrationDocument, /<title>Administration — Lore &amp; Dice CMS<\/title>/);
 		assert.match(administrationDocument, /\/administration\/src\/main\.tsx/);
+		const administrationEntry = administrationDocument.match(
+			/src="([^"]*\/administration\/src\/main\.tsx)"/,
+		)?.[1];
+		assert.ok(administrationEntry);
+		const deniedAsset = await globalThis.fetch(new URL(administrationEntry, origin));
+		assert.equal(deniedAsset.status, 404);
 		const api = await globalThis.fetch(`${origin}/api/catalog/site`, {
 			headers: { accept: "text/html" },
 		});
@@ -56,6 +93,11 @@ test("sert le site et l’administration depuis un seul serveur de développemen
 		assert.equal(await api.text(), "Not Found");
 	} finally {
 		await server.close();
+		await new Promise((resolve, reject) =>
+			backend.close((error) => (error ? reject(error) : resolve())),
+		);
+		if (previousApiOrigin === undefined) delete process.env.VITE_API_ORIGIN;
+		else process.env.VITE_API_ORIGIN = previousApiOrigin;
 	}
 });
 
