@@ -25,6 +25,12 @@ until the release manager assigns a version and publication date.
   projections for the public and administrative React applications.
 - Added the required abstract `entity` root with inherited identity and editorial fields, native
   home and administration navigation, and an administrative contribution-inspection view.
+- Added the Phase 10 page engine with typed routes, aliases, contextual pages, versioned contracts,
+  responsive grid documents, atomic publication workflows, and Core-owned structural persistence.
+- Added generic React page hosts and an administrative page inspector with responsive preview,
+  keyboard movement, and keyboard resizing.
+- Added stable dynamic API transports with per-endpoint contract negotiation, typed request
+  parameters, deprecation metadata, and a 2FA-protected administration audience.
 
 ### Changed
 
@@ -35,6 +41,8 @@ until the release manager assigns a version and publication date.
 - Repository Markdown is limited to useful operational files, written in English first and French
   second; this changelog remains English-only.
 - Isolated Encore runtime adapters from testable database and catalog contracts.
+- Navigation now references stable route identifiers and validated parameters while the page
+  registry remains the single source of canonical browser URLs.
 
 ### Fixed
 

@@ -170,6 +170,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				"La version mise à jour doit être supérieure à la version installée.",
 			);
 		}
+		await this.assertApiRouteAvailable(definition, key);
 		return this.mutate(definition, "update", context.actorId, async () => {
 			const now = new Date();
 			const updating: StoredContribution = {
@@ -377,6 +378,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			);
 		}
 		const key = contributionKey(definition.type, definition.identifier);
+		await this.assertApiRouteAvailable(definition, key);
 		const existing = await this.repository.get(key);
 		if (existing) {
 			if (sameOwner(existing.owner, definition.owner)) {
@@ -435,6 +437,40 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			new ContributionGraph(await this.repository.list()).assertAcyclic();
 			return stored;
 		});
+	}
+
+	private async assertApiRouteAvailable(
+		definition: ContributionDefinition,
+		currentKey: string,
+	): Promise<void> {
+		if (!definition.endpoint) return;
+		for (const existing of await this.repository.list()) {
+			if (
+				existing.key === currentKey ||
+				existing.state === "withdrawn" ||
+				!existing.endpoint ||
+				existing.endpoint.audience !== definition.endpoint.audience ||
+				existing.endpoint.method !== definition.endpoint.method ||
+				!apiRoutesOverlap(existing.endpoint.route, definition.endpoint.route)
+			) {
+				continue;
+			}
+			const samePattern = existing.endpoint.route === definition.endpoint.route;
+			if (
+				!samePattern &&
+				apiRouteSpecificity(existing.endpoint.route) !==
+					apiRouteSpecificity(definition.endpoint.route)
+			) {
+				continue;
+			}
+			const existingMajor = Number(existing.endpoint.contractVersion.split(".", 1)[0]);
+			const candidateMajor = Number(definition.endpoint.contractVersion.split(".", 1)[0]);
+			if (samePattern && existingMajor !== candidateMajor) continue;
+			throw new RegistryError(
+				"registry.collision",
+				`La route d’API ${definition.endpoint.route} est ambiguë avec ${existing.key}.`,
+			);
+		}
 	}
 
 	private async changeState(
@@ -563,4 +599,48 @@ function stableJson(value: unknown): string {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Erreur inconnue du registre.";
+}
+
+function apiRoutesOverlap(first: string, second: string): boolean {
+	const left = first.slice(1).split("/");
+	const right = second.slice(1).split("/");
+	if (left.length !== right.length) return false;
+	return left.every((segment, index) => {
+		const other = right[index]!;
+		const firstParameter = /^\{[^:]+:([^}]+)\}$/.exec(segment)?.[1];
+		const secondParameter = /^\{[^:]+:([^}]+)\}$/.exec(other)?.[1];
+		if (!firstParameter && !secondParameter) return segment === other;
+		if (!firstParameter) return apiSegmentMatches(secondParameter!, segment);
+		if (!secondParameter) return apiSegmentMatches(firstParameter, other);
+		return (
+			firstParameter === secondParameter ||
+			firstParameter === "string" ||
+			secondParameter === "string" ||
+			((firstParameter === "locale" || firstParameter === "slug") &&
+				(secondParameter === "locale" || secondParameter === "slug"))
+		);
+	});
+}
+
+function apiRouteSpecificity(route: string): number {
+	return route
+		.slice(1)
+		.split("/")
+		.filter((segment) => !segment.startsWith("{")).length;
+}
+
+function apiSegmentMatches(type: string, value: string): boolean {
+	if (type === "integer") return /^-?(?:0|[1-9]\d*)$/.test(value);
+	if (type === "locale") {
+		try {
+			return Intl.getCanonicalLocales(value).length === 1;
+		} catch {
+			return false;
+		}
+	}
+	if (type === "slug") return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+	if (type === "uuid") {
+		return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+	}
+	return Boolean(value) && !value.includes("/");
 }

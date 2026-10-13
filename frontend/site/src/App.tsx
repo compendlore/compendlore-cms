@@ -5,17 +5,28 @@ import {
 	Card,
 	FrontendModuleRegistry,
 	Icon,
-	ModuleOutlet,
 	Notice,
+	PageHost,
 	PageHeader,
 	navigationFromCatalog,
+	resolveCatalogPage,
 	useNativeCatalog,
 	type CatalogNavigationLink,
 	type FrontendModuleProps,
 } from "@compendlore/ui";
 
 const registry = new FrontendModuleRegistry();
-registry.register({ identifier: "core.home", kind: "page", component: HomePage });
+registry.register({ identifier: "core.site.home", kind: "component", component: HomePage });
+registry.register({
+	identifier: "core.account.profile",
+	kind: "component",
+	component: AccountProfilePage,
+});
+registry.register({
+	identifier: "core.system.unavailable",
+	kind: "component",
+	component: UnavailablePage,
+});
 const capabilities = new Set<string>(["core.site.view"]);
 
 export function App() {
@@ -30,6 +41,20 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
+	const matchedPage =
+		catalogState.status === "ready"
+			? resolveCatalogPage(
+					catalogState.catalog.pages,
+					path,
+					catalogState.catalog.routeParameterTypes,
+				)
+			: undefined;
+	useEffect(() => {
+		if (matchedPage?.alias && matchedPage.canonicalPath !== path) {
+			window.history.replaceState(null, "", matchedPage.canonicalPath);
+			setPath(matchedPage.canonicalPath);
+		}
+	}, [matchedPage?.alias, matchedPage?.canonicalPath, path]);
 	if (catalogState.status !== "ready") {
 		return (
 			<ApplicationShell>
@@ -47,7 +72,10 @@ export function App() {
 		);
 	}
 	const navigation = navigationFromCatalog(catalogState.catalog, path);
-	const page = catalogState.catalog.pages.find((candidate) => candidate.route === path);
+	const fallbackPage = catalogState.catalog.pages.find(
+		(candidate) => candidate.identifier === "core.system.unavailable",
+	);
+	const page = matchedPage?.page ?? fallbackPage;
 	return (
 		<ApplicationShell
 			brand={navigation.brand}
@@ -62,11 +90,36 @@ export function App() {
 				</>
 			}
 		>
-			<ModuleOutlet
-				contribution={page ? registry.resolve(page.identifier, capabilities) : undefined}
-				context={{ capabilities, locale: catalogState.catalog.locale }}
-			/>
+			{page ? (
+				<PageHost
+					page={page}
+					registry={registry}
+					context={{ capabilities, locale: catalogState.catalog.locale }}
+					state={{ catalog: catalogState.catalog, route: matchedPage }}
+				/>
+			) : null}
 		</ApplicationShell>
+	);
+}
+
+function AccountProfilePage(_props: FrontendModuleProps) {
+	return (
+		<>
+			<PageHeader
+				eyebrow="Compte"
+				title="Profil"
+				description="Cette page de compte est fournie par le moteur de pages et pourra être enrichie par les modules autorisés."
+			/>
+		</>
+	);
+}
+
+function UnavailablePage(_props: FrontendModuleProps) {
+	return (
+		<Notice tone="warning" title="Page indisponible">
+			Cette route n’est pas enregistrée, la contribution correspondante est indisponible ou votre
+			session ne possède pas la capacité requise.
+		</Notice>
 	);
 }
 

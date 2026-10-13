@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { IconName } from "./icons.js";
 import type { NavigationLinkView, SidebarElementView, SidebarView } from "./navigation.js";
+import type { CatalogPage } from "./page-host.js";
 
 export interface CatalogNavigationLink {
 	readonly identifier: string;
@@ -52,16 +53,13 @@ export interface NativeCatalogDocument {
 			readonly items: readonly CatalogSidebarItem[];
 		}[];
 	};
-	readonly pages: readonly {
+	readonly routeParameterTypes: readonly {
 		readonly identifier: string;
-		readonly route: string;
-		readonly surface: "account" | "administration" | "site";
-		readonly title: string;
-		readonly description?: string;
-		readonly contributionKey: string;
-		readonly editable: boolean;
-		readonly removable: boolean;
+		readonly base: "integer" | "locale" | "slug" | "string" | "uuid";
+		readonly maximumLength?: number;
+		readonly allowedValues?: readonly string[];
 	}[];
+	readonly pages: readonly (CatalogPage & { readonly route: string })[];
 	readonly contributions?: readonly {
 		readonly contributionKey: string;
 		readonly owner: { readonly kind: string; readonly identifier: string };

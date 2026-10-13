@@ -73,7 +73,7 @@ export interface MethodContractDefinition {
 	readonly idempotent: boolean;
 }
 
-export type ApiAudience = "internal" | "public" | "site";
+export type ApiAudience = "administration" | "internal" | "public" | "site";
 export type ApiHttpMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
 
 export type ApiValueSchema =
@@ -99,6 +99,14 @@ export interface ApiPublicErrorDefinition {
 	readonly message: Readonly<Record<string, string>>;
 }
 
+export interface ApiParameterDefinition {
+	readonly name: string;
+	readonly source: "body" | "header" | "path" | "query";
+	readonly sourceName?: string;
+	readonly required?: boolean;
+	readonly schema: ApiValueSchema;
+}
+
 export interface ApiEndpointContractDefinition {
 	readonly audience: ApiAudience;
 	readonly method: ApiHttpMethod;
@@ -106,8 +114,11 @@ export interface ApiEndpointContractDefinition {
 	readonly contractVersion: string;
 	readonly businessMethodIdentifier: string;
 	readonly requiredCapability?: string;
+	readonly parameters?: readonly ApiParameterDefinition[];
 	readonly input: ApiValueSchema;
 	readonly output: ApiValueSchema;
+	readonly deprecatedAt?: string;
+	readonly sunsetAt?: string;
 	readonly publicErrors?: readonly ApiPublicErrorDefinition[];
 	readonly quota?: {
 		readonly limit: number;

@@ -14,6 +14,7 @@ export interface NavigationLinkDefinition {
 	readonly contributionKey: string;
 	readonly mode: "action" | "route" | (string & {});
 	readonly target: string;
+	readonly routeParameters?: Readonly<Record<string, string | number>>;
 	readonly titleTextIdentifier: string;
 	readonly tooltipTextIdentifier?: string;
 	readonly iconIdentifier?: string;
@@ -85,6 +86,7 @@ export interface ResolvedNavigationLink {
 	readonly iconIdentifier?: string;
 	readonly mode: string;
 	readonly target: string;
+	readonly routeParameters?: Readonly<Record<string, string | number>>;
 	readonly sidebarIdentifier?: string;
 	readonly colorToken?: string;
 	readonly order: number;
@@ -139,8 +141,11 @@ export class NavigationEngine {
 
 	registerLink(definition: NavigationLinkDefinition): void {
 		validateIdentifier(definition.identifier);
-		if (definition.mode === "route" && !definition.target.startsWith("/")) {
-			invalid("Une route de navigation doit être absolue.");
+		if (
+			definition.mode === "route" &&
+			!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(definition.target)
+		) {
+			invalid("Une navigation interne doit référencer un identifiant de route stable.");
 		}
 		this.links.set(definition.identifier, Object.freeze({ ...definition }));
 		this.revision += 1;
@@ -317,6 +322,7 @@ export class NavigationEngine {
 			...(link.iconIdentifier ? { iconIdentifier: link.iconIdentifier } : {}),
 			mode: link.mode,
 			target: link.target,
+			...(link.routeParameters ? { routeParameters: link.routeParameters } : {}),
 			...(item.sidebarIdentifier ? { sidebarIdentifier: item.sidebarIdentifier } : {}),
 			...(item.colorToken ? { colorToken: item.colorToken } : {}),
 			order: item.order,
@@ -413,6 +419,7 @@ export class NavigationEngine {
 							...(link.iconIdentifier ? { iconIdentifier: link.iconIdentifier } : {}),
 							mode: link.mode,
 							target: link.target,
+							...(link.routeParameters ? { routeParameters: link.routeParameters } : {}),
 							order: item.order,
 						},
 					}

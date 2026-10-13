@@ -17,7 +17,7 @@ export const internalGateway = api.raw(
 	{
 		expose: false,
 		method: "*",
-		path: "/internal/:contractVersion/*route",
+		path: "/internal/*route",
 		bodyLimit: 1_048_576,
 		tags: ["gateway", "internal"],
 		sensitive: true,
@@ -31,7 +31,7 @@ export const siteGateway = api.raw(
 	{
 		expose: true,
 		method: "*",
-		path: "/api/site/:contractVersion/*route",
+		path: "/api/site/*route",
 		bodyLimit: 1_048_576,
 		tags: ["gateway", "site"],
 		sensitive: true,
@@ -45,13 +45,27 @@ export const publicGateway = api.raw(
 	{
 		expose: true,
 		method: "*",
-		path: "/api/public/:contractVersion/*route",
+		path: "/api/public/*route",
 		bodyLimit: 1_048_576,
 		tags: ["gateway", "public"],
 		sensitive: true,
 	},
 	(request, response) => {
 		void handle(request, response, "public");
+	},
+);
+
+export const administrationGateway = api.raw(
+	{
+		expose: true,
+		method: "*",
+		path: "/api/administration/*route",
+		bodyLimit: 1_048_576,
+		tags: ["gateway", "administration"],
+		sensitive: true,
+	},
+	(request, response) => {
+		void handle(request, response, "administration");
 	},
 );
 
@@ -70,25 +84,32 @@ async function handle(
 		}
 		const method = normalizeMethod(request.method);
 		const parsedUrl = new URL(request.url ?? "/", "http://cms.internal");
-		const { version, route } = parseGatewayPath(parsedUrl.pathname, audience);
-		const body =
-			method === "GET" || method === "DELETE" ? queryAsObject(parsedUrl) : await readJson(request);
+		const route = parseGatewayPath(parsedUrl.pathname, audience);
+		const body = method === "GET" || method === "DELETE" ? null : await readJson(request);
+		const query = queryAsObject(parsedUrl);
+		const headers = requestHeaders(request);
 		const credentials = readCredentials(request);
 		const idempotencyKey = header(request, "x-idempotency-key");
 		const locale = header(request, "accept-language");
 		const correlationId = header(request, "x-correlation-id");
+		const contractVersion = header(request, "x-api-contract-version");
 		const result = await configuredGateway.invoke({
 			audience,
 			method,
 			route,
-			contractVersion: version,
 			body,
+			query,
+			headers,
+			...(contractVersion ? { contractVersion } : {}),
 			...(credentials ? { credentials } : {}),
 			...(idempotencyKey ? { idempotencyKey } : {}),
 			...(locale ? { locale } : {}),
 			...(correlationId ? { correlationId } : {}),
 		});
 		response.setHeader("x-correlation-id", result.correlationId);
+		for (const [name, value] of Object.entries(result.headers ?? {})) {
+			response.setHeader(name, value);
+		}
 		writeJson(response, result.status, result.body);
 	} catch {
 		writeJson(response, 400, {
@@ -98,18 +119,12 @@ async function handle(
 	}
 }
 
-function parseGatewayPath(
-	pathname: string,
-	audience: ApiAudience,
-): { readonly version: string; readonly route: string } {
+function parseGatewayPath(pathname: string, audience: ApiAudience): string {
 	const prefix = audience === "internal" ? "/internal/" : `/api/${audience}/`;
 	if (!pathname.startsWith(prefix)) throw new Error("Préfixe invalide.");
-	const [version, ...segments] = pathname.slice(prefix.length).split("/");
-	if (!version || segments.length === 0) throw new Error("Route incomplète.");
-	return {
-		version: decodeURIComponent(version),
-		route: `/${segments.map(decodeURIComponent).join("/")}`,
-	};
+	const segments = pathname.slice(prefix.length).split("/").filter(Boolean);
+	if (segments.length === 0) throw new Error("Route incomplète.");
+	return `/${segments.map(decodeURIComponent).join("/")}`;
 }
 
 function normalizeMethod(method: string | undefined): ApiHttpMethod {
@@ -147,6 +162,17 @@ function queryAsObject(url: URL): Readonly<Record<string, string | readonly stri
 		else output[key] = [existing, value];
 	}
 	return output;
+}
+
+function requestHeaders(
+	request: IncomingMessage,
+): Readonly<Record<string, string | readonly string[] | undefined>> {
+	return Object.fromEntries(
+		Object.entries(request.headers).map(([name, value]) => [
+			name.toLowerCase(),
+			Array.isArray(value) ? value : value,
+		]),
+	);
 }
 
 function readCredentials(request: IncomingMessage): ApiCredentials | undefined {

@@ -8,14 +8,15 @@ import {
 	FrontendModuleRegistry,
 	Icon,
 	Modal,
-	ModuleOutlet,
 	Notice,
+	PageHost,
 	PageHeader,
 	SelectField,
 	Switch,
 	Table,
 	Tabs,
 	navigationFromCatalog,
+	resolveCatalogPage,
 	useNativeCatalog,
 	type CatalogNavigationLink,
 	type FrontendModuleProps,
@@ -25,21 +26,32 @@ import {
 const registry = new FrontendModuleRegistry();
 registry.register({
 	identifier: "core.admin.dashboard",
-	kind: "page",
+	kind: "component",
 	requiredCapability: "core.administration.access",
 	component: DashboardPage,
 });
 registry.register({
 	identifier: "core.admin.modules",
-	kind: "page",
+	kind: "component",
 	requiredCapability: "core.administration.access",
 	component: ModulesPage,
 });
 registry.register({
 	identifier: "core.admin.interface",
-	kind: "page",
+	kind: "component",
 	requiredCapability: "core.administration.access",
 	component: InterfacePage,
+});
+registry.register({
+	identifier: "core.admin.pages",
+	kind: "component",
+	requiredCapability: "core.administration.access",
+	component: PageManagementPage,
+});
+registry.register({
+	identifier: "core.system.unavailable",
+	kind: "component",
+	component: UnavailablePage,
 });
 const capabilities = new Set<string>(["core.administration.access"]);
 
@@ -61,6 +73,20 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
+	const matchedPage =
+		catalogState.status === "ready"
+			? resolveCatalogPage(
+					catalogState.catalog.pages,
+					path,
+					catalogState.catalog.routeParameterTypes,
+				)
+			: undefined;
+	useEffect(() => {
+		if (matchedPage?.alias && matchedPage.canonicalPath !== path) {
+			window.history.replaceState(null, "", matchedPage.canonicalPath);
+			setPath(matchedPage.canonicalPath);
+		}
+	}, [matchedPage?.alias, matchedPage?.canonicalPath, path]);
 	if (catalogState.status !== "ready") {
 		return (
 			<ApplicationShell administration>
@@ -80,7 +106,10 @@ export function App() {
 		);
 	}
 	const navigation = navigationFromCatalog(catalogState.catalog, path);
-	const page = catalogState.catalog.pages.find((candidate) => candidate.route === path);
+	const fallbackPage = catalogState.catalog.pages.find(
+		(candidate) => candidate.identifier === "core.system.unavailable",
+	);
+	const page = matchedPage?.page ?? fallbackPage;
 	return (
 		<ApplicationShell
 			administration
@@ -96,17 +125,24 @@ export function App() {
 				</>
 			}
 		>
-			<ModuleOutlet
-				contribution={page ? registry.resolve(page.identifier, capabilities) : undefined}
-				context={{ capabilities, locale: catalogState.catalog.locale }}
-				state={catalogState.catalog}
-				fallback={
-					<Notice tone="danger" title="Page administrative indisponible">
-						Cette route n’est pas enregistrée ou votre session ne possède plus la capacité requise.
-					</Notice>
-				}
-			/>
+			{page ? (
+				<PageHost
+					page={page}
+					registry={registry}
+					context={{ capabilities, locale: catalogState.catalog.locale }}
+					state={{ catalog: catalogState.catalog, route: matchedPage }}
+				/>
+			) : null}
 		</ApplicationShell>
+	);
+}
+
+function UnavailablePage(_props: FrontendModuleProps) {
+	return (
+		<Notice tone="danger" title="Page administrative indisponible">
+			Cette route n’est pas enregistrée, la contribution correspondante est indisponible ou votre
+			session ne possède plus la capacité requise.
+		</Notice>
 	);
 }
 
@@ -158,7 +194,9 @@ function DashboardPage(_props: FrontendModuleProps) {
 }
 
 function ModulesPage({ state }: FrontendModuleProps) {
-	const catalog = state as NativeCatalogDocument | undefined;
+	const catalog = (
+		state as { readonly page?: { readonly catalog?: NativeCatalogDocument } } | undefined
+	)?.page?.catalog;
 	const contributions = catalog?.contributions ?? [];
 	return (
 		<>
@@ -277,6 +315,138 @@ function InterfacePage(_props: FrontendModuleProps) {
 			>
 				Cette fenêtre vérifie le contraste, l’alignement et la fermeture par l’arrière-plan.
 			</Modal>
+		</>
+	);
+}
+
+function PageManagementPage({ state }: FrontendModuleProps) {
+	const catalog = (
+		state as { readonly page?: { readonly catalog?: NativeCatalogDocument } } | undefined
+	)?.page?.catalog;
+	const pages = (catalog?.pages ?? []).filter((page) => page.surface !== "system");
+	const [selectedIdentifier, setSelectedIdentifier] = useState(() => pages[0]?.identifier ?? "");
+	const selected = pages.find((page) => page.identifier === selectedIdentifier) ?? pages[0];
+	const [breakpoint, setBreakpoint] = useState(
+		() => selected?.document.breakpoints[0]?.identifier ?? "",
+	);
+	const [placement, setPlacement] = useState({ column: 1, row: 1, columnSpan: 1, rowSpan: 1 });
+	useEffect(() => {
+		const firstBreakpoint = selected?.document.breakpoints[0]?.identifier ?? "";
+		const firstPlacement = selected?.document.containers[0]?.placements.find(
+			(candidate) => candidate.breakpoint === firstBreakpoint,
+		);
+		setBreakpoint(firstBreakpoint);
+		setPlacement(
+			firstPlacement
+				? {
+						column: firstPlacement.column,
+						row: firstPlacement.row,
+						columnSpan: firstPlacement.columnSpan,
+						rowSpan: firstPlacement.rowSpan,
+					}
+				: { column: 1, row: 1, columnSpan: 1, rowSpan: 1 },
+		);
+	}, [selected?.identifier]);
+	const move = (column: number, row: number) =>
+		setPlacement((current) => ({
+			...current,
+			column: Math.max(1, current.column + column),
+			row: Math.max(1, current.row + row),
+		}));
+	const resize = (columnSpan: number, rowSpan: number) => {
+		const maximumColumns =
+			selected?.document.breakpoints.find((candidate) => candidate.identifier === breakpoint)
+				?.columns ?? 1;
+		setPlacement((current) => ({
+			...current,
+			columnSpan: Math.min(
+				maximumColumns - current.column + 1,
+				Math.max(1, current.columnSpan + columnSpan),
+			),
+			rowSpan: Math.max(1, current.rowSpan + rowSpan),
+		}));
+	};
+	return (
+		<>
+			<PageHeader
+				eyebrow="Administration · Composition"
+				title="Moteur de pages"
+				description="Inspectez les routes, les versions publiées et les dispositions responsive issues du Registry."
+			/>
+			<section className="content-grid">
+				<Card title="Catalogue" eyebrow="Pages enregistrées">
+					<SelectField
+						label="Page"
+						options={pages.map((page) => ({ value: page.identifier, label: page.title }))}
+						value={selected?.identifier ?? ""}
+						onChange={(event) => setSelectedIdentifier(event.target.value)}
+					/>
+					{selected ? (
+						<dl className="definition-list">
+							<div>
+								<dt>Provenance</dt>
+								<dd>{selected.contributionKey}</dd>
+							</div>
+							<div>
+								<dt>Révision publiée</dt>
+								<dd>{selected.revision}</dd>
+							</div>
+							<div>
+								<dt>Routes</dt>
+								<dd>{selected.routes.map((route) => route.pattern).join(", ")}</dd>
+							</div>
+						</dl>
+					) : null}
+				</Card>
+				<Card title="Prévisualisation responsive" eyebrow="Grille">
+					<SelectField
+						label="Palier"
+						options={(selected?.document.breakpoints ?? []).map((item) => ({
+							value: item.identifier,
+							label: `${item.identifier} · ${item.columns} colonnes`,
+						}))}
+						value={breakpoint}
+						onChange={(event) => setBreakpoint(event.target.value)}
+					/>
+					<div
+						className="page-layout-preview"
+						tabIndex={0}
+						onKeyDown={(event) => {
+							if (event.shiftKey && event.key === "ArrowLeft") resize(-1, 0);
+							else if (event.shiftKey && event.key === "ArrowRight") resize(1, 0);
+							else if (event.shiftKey && event.key === "ArrowUp") resize(0, -1);
+							else if (event.shiftKey && event.key === "ArrowDown") resize(0, 1);
+							else if (event.key === "ArrowLeft") move(-1, 0);
+							else if (event.key === "ArrowRight") move(1, 0);
+							else if (event.key === "ArrowUp") move(0, -1);
+							else if (event.key === "ArrowDown") move(0, 1);
+						}}
+						aria-label="Conteneur sélectionné. Utilisez les flèches pour le déplacer et Maj avec les flèches pour le redimensionner."
+					>
+						<strong>{selected?.document.containers[0]?.identifier ?? "Aucun conteneur"}</strong>
+						<span>
+							Colonne {placement.column}, ligne {placement.row}, largeur {placement.columnSpan},
+							hauteur {placement.rowSpan}
+						</span>
+					</div>
+					<div className="button-row" aria-label="Déplacement accessible du conteneur">
+						<Button onClick={() => move(-1, 0)}>Gauche</Button>
+						<Button onClick={() => move(1, 0)}>Droite</Button>
+						<Button onClick={() => move(0, -1)}>Haut</Button>
+						<Button onClick={() => move(0, 1)}>Bas</Button>
+					</div>
+					<div className="button-row" aria-label="Redimensionnement accessible du conteneur">
+						<Button onClick={() => resize(-1, 0)}>Rétrécir</Button>
+						<Button onClick={() => resize(1, 0)}>Élargir</Button>
+						<Button onClick={() => resize(0, -1)}>Réduire</Button>
+						<Button onClick={() => resize(0, 1)}>Agrandir</Button>
+					</div>
+					<Notice tone="information" title="Prévisualisation sans publication">
+						Les déplacements de cet inspecteur sont locaux. La publication atomique est assurée par
+						le cycle de révisions du Core.
+					</Notice>
+				</Card>
+			</section>
 		</>
 	);
 }

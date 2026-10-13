@@ -6,8 +6,13 @@ import type {
 	LocalizedTextResourceDefinition,
 	LocalizedTextValueDefinition,
 	MainNavigationItemDefinition,
+	PageActionContractDefinition,
+	PageComponentContractDefinition,
+	PageContextTypeDefinition,
+	PageDataProviderContractDefinition,
 	NavigationLinkDefinition,
 	PageDefinition,
+	RouteParameterTypeDefinition,
 	SidebarDefinition,
 	SidebarItemDefinition,
 } from "../../core/src/index.js";
@@ -52,6 +57,23 @@ export type NativeEntityTypeDefinition = Omit<
 
 export type NativeEntityRelationDefinition = Omit<EntityRelationDefinition, "contributionKey">;
 export type NativeEntityInterfaceDefinition = Omit<EntityInterfaceDefinition, "contributionKey">;
+export type NativeRouteParameterTypeDefinition = Omit<
+	RouteParameterTypeDefinition,
+	"contributionKey"
+>;
+export type NativePageComponentContractDefinition = Omit<
+	PageComponentContractDefinition,
+	"contributionKey"
+>;
+export type NativePageDataProviderContractDefinition = Omit<
+	PageDataProviderContractDefinition,
+	"contributionKey"
+>;
+export type NativePageActionContractDefinition = Omit<
+	PageActionContractDefinition,
+	"contributionKey"
+>;
+export type NativePageContextTypeDefinition = Omit<PageContextTypeDefinition, "contributionKey">;
 export type NativeNavigationLinkDefinition = Omit<
 	NavigationLinkDefinition,
 	"contributionKey" | "requiredCapabilities"
@@ -94,7 +116,7 @@ export type NativeSidebarItemDefinition = Omit<
 	>;
 export type NativePageDefinition = Omit<
 	PageDefinition,
-	"contributionKey" | "editable" | "published" | "removable" | "requiredCapabilities"
+	"contributionKey" | "editable" | "ownerKind" | "published" | "removable" | "requiredCapabilities"
 > &
 	Partial<Pick<PageDefinition, "editable" | "published" | "removable" | "requiredCapabilities">>;
 
@@ -111,6 +133,11 @@ export interface NativeContentContribution {
 	readonly navigationItems?: readonly NativeNavigationItemDefinition[];
 	readonly sidebars?: readonly NativeSidebarDefinition[];
 	readonly sidebarItems?: readonly NativeSidebarItemDefinition[];
+	readonly routeParameterTypes?: readonly NativeRouteParameterTypeDefinition[];
+	readonly pageComponentContracts?: readonly NativePageComponentContractDefinition[];
+	readonly pageDataProviderContracts?: readonly NativePageDataProviderContractDefinition[];
+	readonly pageActionContracts?: readonly NativePageActionContractDefinition[];
+	readonly pageContextTypes?: readonly NativePageContextTypeDefinition[];
 	readonly pages?: readonly NativePageDefinition[];
 }
 
@@ -221,6 +248,11 @@ export class NativeContentRegistry {
 				navigationItems: definition.navigationItems?.length ?? 0,
 				sidebars: definition.sidebars?.length ?? 0,
 				sidebarItems: definition.sidebarItems?.length ?? 0,
+				routeParameterTypes: definition.routeParameterTypes?.length ?? 0,
+				pageComponentContracts: definition.pageComponentContracts?.length ?? 0,
+				pageDataProviderContracts: definition.pageDataProviderContracts?.length ?? 0,
+				pageActionContracts: definition.pageActionContracts?.length ?? 0,
+				pageContextTypes: definition.pageContextTypes?.length ?? 0,
 				pages: definition.pages?.length ?? 0,
 			},
 			locked: definition.owner.kind === "core" || definition.owner.kind === "native-module",
@@ -274,6 +306,36 @@ export class NativeContentRegistry {
 	}
 
 	private materialize(definition: NativeContentContribution): void {
+		for (const parameterType of definition.routeParameterTypes ?? []) {
+			this.pages.registerParameterType({
+				...parameterType,
+				contributionKey: definition.contributionKey,
+			});
+		}
+		for (const contract of definition.pageComponentContracts ?? []) {
+			this.pages.registerComponentContract({
+				...contract,
+				contributionKey: definition.contributionKey,
+			});
+		}
+		for (const contract of definition.pageDataProviderContracts ?? []) {
+			this.pages.registerDataProviderContract({
+				...contract,
+				contributionKey: definition.contributionKey,
+			});
+		}
+		for (const contract of definition.pageActionContracts ?? []) {
+			this.pages.registerActionContract({
+				...contract,
+				contributionKey: definition.contributionKey,
+			});
+		}
+		for (const contextType of definition.pageContextTypes ?? []) {
+			this.pages.registerContextType({
+				...contextType,
+				contributionKey: definition.contributionKey,
+			});
+		}
 		for (const resource of definition.localizedResources ?? []) {
 			const normalized: LocalizedTextResourceDefinition = {
 				identifier: resource.identifier,
@@ -365,6 +427,7 @@ export class NativeContentRegistry {
 			this.pages.register({
 				...page,
 				contributionKey: definition.contributionKey,
+				ownerKind: definition.owner.kind,
 				requiredCapabilities: page.requiredCapabilities ?? [],
 				editable: page.editable ?? false,
 				removable: page.removable ?? false,
@@ -452,9 +515,30 @@ export class NativeContentRegistry {
 				requiredCapabilities: item.requiredCapabilities ?? [],
 				order: item.order ?? 0,
 			})),
+			routeParameterTypes: (definition.routeParameterTypes ?? []).map((item) => ({
+				...item,
+				contributionKey: definition.contributionKey,
+			})),
+			pageComponentContracts: (definition.pageComponentContracts ?? []).map((item) => ({
+				...item,
+				contributionKey: definition.contributionKey,
+			})),
+			pageDataProviderContracts: (definition.pageDataProviderContracts ?? []).map((item) => ({
+				...item,
+				contributionKey: definition.contributionKey,
+			})),
+			pageActionContracts: (definition.pageActionContracts ?? []).map((item) => ({
+				...item,
+				contributionKey: definition.contributionKey,
+			})),
+			pageContextTypes: (definition.pageContextTypes ?? []).map((item) => ({
+				...item,
+				contributionKey: definition.contributionKey,
+			})),
 			pages: (definition.pages ?? []).map((page) => ({
 				...page,
 				contributionKey: definition.contributionKey,
+				ownerKind: definition.owner.kind,
 				requiredCapabilities: page.requiredCapabilities ?? [],
 				editable: page.editable ?? false,
 				removable: page.removable ?? false,

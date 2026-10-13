@@ -811,3 +811,32 @@
 		}
 	}
 }
+.page-engine__region {
+	display: grid;
+	grid-template-columns: repeat(var(--page-grid-columns, 12), minmax(0, 1fr));
+	grid-auto-rows: var(--page-grid-row-height, 80px);
+	gap: var(--page-grid-gap, 24px);
+}
+
+.page-engine__container {
+	grid-column: var(--page-grid-column, 1) / span var(--page-grid-column-span, 12);
+	grid-row: var(--page-grid-row, 1) / span var(--page-grid-row-span, 1);
+	min-width: 0;
+}
+
+.page-layout-preview {
+	display: grid;
+	gap: 0.5rem;
+	min-height: 10rem;
+	place-content: center;
+	margin-block: 1rem;
+	border: 1px dashed var(--line-strong);
+	background: var(--panel-soft);
+	text-align: center;
+}
+
+.button-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+}

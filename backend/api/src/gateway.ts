@@ -15,6 +15,8 @@ export interface ApiIdentity {
 	readonly id: string;
 	readonly kind: "api-key" | "oauth-client" | "system" | "user";
 	readonly capabilities: ReadonlySet<string>;
+	readonly administrativeSession?: boolean;
+	readonly secondFactorVerifiedAt?: Date;
 }
 
 export interface ApiCredentials {
@@ -27,8 +29,10 @@ export interface ApiInvocationRequest {
 	readonly audience: ApiAudience;
 	readonly method: ApiHttpMethod;
 	readonly route: string;
-	readonly contractVersion: string;
+	readonly contractVersion?: string;
 	readonly body: unknown;
+	readonly query?: Readonly<Record<string, string | readonly string[]>>;
+	readonly headers?: Readonly<Record<string, string | readonly string[] | undefined>>;
 	readonly credentials?: ApiCredentials;
 	readonly idempotencyKey?: string;
 	readonly locale?: string;
@@ -39,6 +43,7 @@ export interface ApiInvocationResponse {
 	readonly status: number;
 	readonly correlationId: string;
 	readonly body: unknown;
+	readonly headers?: Readonly<Record<string, string>>;
 }
 
 export interface ApiAuthenticationPort {
@@ -230,7 +235,8 @@ export class ApiGateway {
 			endpointKey = endpoint.key;
 			identity = await this.authentication.authenticate(request.credentials, request.audience);
 			await this.authorize(endpoint, identity, request.audience);
-			if (!matchesSchema(endpoint.contract.input, request.body)) {
+			const input = collectEndpointInput(endpoint, request);
+			if (!matchesSchema(endpoint.contract.input, input)) {
 				throw new ApiGatewayError("api.input_invalid", 400, "La requête est invalide.");
 			}
 			const quota = endpoint.contract.quota;
@@ -246,7 +252,7 @@ export class ApiGateway {
 			}
 			const output = await this.registry.invokeRegisteredMethod({
 				methodIdentifier: endpoint.contract.businessMethodIdentifier,
-				input: request.body,
+				input,
 				...(identity?.kind === "user" ? { actorId: identity.id } : {}),
 				...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
 			});
@@ -261,7 +267,12 @@ export class ApiGateway {
 				outcome: "allowed",
 				occurredAt: new Date(),
 			});
-			return { status: 200, correlationId, body: output };
+			return {
+				status: 200,
+				correlationId,
+				body: output,
+				headers: contractHeaders(endpoint.contract),
+			};
 		} catch (error) {
 			const errorCode = readErrorCode(error);
 			const response = publicError(
@@ -286,25 +297,35 @@ export class ApiGateway {
 				errorType: error instanceof Error ? error.name : "UnknownError",
 				occurredAt: new Date(),
 			});
-			return response;
+			return resolvedEndpoint
+				? { ...response, headers: contractHeaders(resolvedEndpoint.contract) }
+				: response;
 		}
 	}
 
 	private async resolveEndpoint(request: ApiInvocationRequest): Promise<ResolvedEndpoint> {
 		const candidates = (await this.registry.catalog()).byType["api-endpoint"];
+		const matches: ResolvedEndpoint[] = [];
 		for (const contribution of candidates) {
 			const contract = contribution.endpoint;
+			const routeParameters = contract ? matchRoute(contract.route, request.route) : undefined;
 			if (
 				contribution.state === "active" &&
 				contract &&
 				contract.audience === request.audience &&
 				contract.method === request.method &&
-				contract.contractVersion === request.contractVersion &&
-				matchRoute(contract.route, request.route)
+				routeParameters &&
+				versionCompatible(contract.contractVersion, request.contractVersion)
 			) {
-				return { key: contribution.key, contract };
+				matches.push({ key: contribution.key, contract, routeParameters });
 			}
 		}
+		matches.sort(
+			(left, right) =>
+				routeSpecificity(right.contract.route) - routeSpecificity(left.contract.route) ||
+				compareVersions(right.contract.contractVersion, left.contract.contractVersion),
+		);
+		if (matches[0]) return matches[0];
 		throw new ApiGatewayError("api.not_found", 404, "La ressource demandée est introuvable.");
 	}
 
@@ -326,6 +347,25 @@ export class ApiGateway {
 				"Une authentification est requise.",
 			);
 		}
+		if (audience === "administration") {
+			const secondFactorAge = identity?.secondFactorVerifiedAt
+				? Date.now() - identity.secondFactorVerifiedAt.getTime()
+				: Number.POSITIVE_INFINITY;
+			if (
+				!identity ||
+				identity.kind !== "user" ||
+				!identity.administrativeSession ||
+				secondFactorAge > 15 * 60 * 1_000 ||
+				(!identity.capabilities.has("*") &&
+					!identity.capabilities.has("core.administration.access"))
+			) {
+				throw new ApiGatewayError(
+					"api.administration_authentication_required",
+					403,
+					"Une session administrative avec second facteur récent est requise.",
+				);
+			}
+		}
 		if (
 			endpoint.contract.requiredCapability &&
 			!identity?.capabilities.has("*") &&
@@ -343,6 +383,7 @@ export class ApiGateway {
 interface ResolvedEndpoint {
 	readonly key: string;
 	readonly contract: ApiEndpointContractDefinition;
+	readonly routeParameters: Readonly<Record<string, string | number>>;
 }
 
 export class ApiGatewayError extends Error {
@@ -454,13 +495,114 @@ function matchesSchema(schema: ApiValueSchema, value: unknown): boolean {
 	);
 }
 
-function matchRoute(pattern: string, route: string): boolean {
+function matchRoute(
+	pattern: string,
+	route: string,
+): Readonly<Record<string, string | number>> | undefined {
 	const expected = pattern.split("/");
 	const actual = route.split("/");
-	return (
-		expected.length === actual.length &&
-		expected.every((segment, index) => segment.startsWith(":") || segment === actual[index])
-	);
+	if (expected.length !== actual.length) return undefined;
+	const parameters: Record<string, string | number> = {};
+	for (const [index, segment] of expected.entries()) {
+		const value = actual[index]!;
+		const parameter = /^\{([a-z][a-z0-9_-]*):(integer|locale|slug|string|uuid)\}$/.exec(segment);
+		if (!parameter) {
+			if (segment !== value) return undefined;
+			continue;
+		}
+		const [, name, type] = parameter;
+		if (!matchesRouteType(type!, value)) return undefined;
+		parameters[name!] = type === "integer" ? Number(value) : value;
+	}
+	return parameters;
+}
+
+function matchesRouteType(type: string, value: string): boolean {
+	if (type === "integer")
+		return /^-?(?:0|[1-9]\d*)$/.test(value) && Number.isSafeInteger(Number(value));
+	if (type === "locale") {
+		try {
+			return Intl.getCanonicalLocales(value).length === 1;
+		} catch {
+			return false;
+		}
+	}
+	if (type === "slug") return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+	if (type === "uuid")
+		return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+	return Boolean(value) && !value.includes("/");
+}
+
+function collectEndpointInput(endpoint: ResolvedEndpoint, request: ApiInvocationRequest): unknown {
+	const definitions = endpoint.contract.parameters;
+	if (!definitions || definitions.length === 0) return request.body;
+	const input: Record<string, unknown> = {};
+	for (const parameter of definitions) {
+		const sourceName = parameter.sourceName ?? parameter.name;
+		let value: unknown;
+		if (parameter.source === "path") value = endpoint.routeParameters[sourceName];
+		if (parameter.source === "query") value = request.query?.[sourceName];
+		if (parameter.source === "header") value = request.headers?.[sourceName.toLowerCase()];
+		if (parameter.source === "body") {
+			value =
+				request.body && typeof request.body === "object" && !Array.isArray(request.body)
+					? (request.body as Record<string, unknown>)[sourceName]
+					: undefined;
+		}
+		if (value === undefined) {
+			if (parameter.required) {
+				throw new ApiGatewayError(
+					"api.parameter_missing",
+					400,
+					`Le paramètre ${parameter.name} est obligatoire.`,
+				);
+			}
+			continue;
+		}
+		if (!matchesSchema(parameter.schema, value)) {
+			throw new ApiGatewayError(
+				"api.parameter_invalid",
+				400,
+				`Le paramètre ${parameter.name} est invalide.`,
+			);
+		}
+		input[parameter.name] = value;
+	}
+	return input;
+}
+
+function versionCompatible(actual: string, requested: string | undefined): boolean {
+	if (!requested) return true;
+	if (/^\d+$/.test(requested)) return actual.startsWith(`${requested}.`);
+	if (/^\^\d+$/.test(requested)) return actual.startsWith(`${requested.slice(1)}.`);
+	return actual === requested;
+}
+
+function compareVersions(first: string, second: string): number {
+	const left = first.split("-")[0]!.split(".").map(Number);
+	const right = second.split("-")[0]!.split(".").map(Number);
+	for (let index = 0; index < 3; index += 1) {
+		const difference = (left[index] ?? 0) - (right[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return first.localeCompare(second);
+}
+
+function routeSpecificity(route: string): number {
+	return route
+		.slice(1)
+		.split("/")
+		.filter((segment) => !segment.startsWith("{")).length;
+}
+
+function contractHeaders(
+	contract: ApiEndpointContractDefinition,
+): Readonly<Record<string, string>> {
+	return {
+		"x-api-contract-version": contract.contractVersion,
+		...(contract.deprecatedAt ? { deprecation: contract.deprecatedAt } : {}),
+		...(contract.sunsetAt ? { sunset: contract.sunsetAt } : {}),
+	};
 }
 
 function validateBody(body: unknown): void {

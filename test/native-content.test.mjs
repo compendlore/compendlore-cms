@@ -23,6 +23,36 @@ function locale(requestedLocales = ["fr-FR"]) {
 	return { requestedLocales, defaultLocale: "en" };
 }
 
+function pageDocument(componentIdentifier) {
+	return {
+		breakpoints: [{ identifier: "mobile", minimumWidth: 0, columns: 4, rowHeight: 80, gap: 16 }],
+		regions: [{ identifier: "main", order: 10 }],
+		containers: [
+			{
+				identifier: "main",
+				regionIdentifier: "main",
+				placements: [
+					{
+						breakpoint: "mobile",
+						column: 1,
+						row: 1,
+						columnSpan: 4,
+						rowSpan: 2,
+					},
+				],
+			},
+		],
+		components: [
+			{
+				identifier: "main",
+				componentIdentifier,
+				containerIdentifier: "main",
+				order: 10,
+			},
+		],
+	};
+}
+
 test("matérialise la contribution native et résout les textes sans langue imposée", () => {
 	const registry = new NativeContentRegistry();
 	const inspection = registry.register(nativeSiteContribution);
@@ -47,7 +77,7 @@ test("résout la navigation publique et protège le catalogue administratif", ()
 	registry.register(nativeSiteContribution);
 	const publicNavigation = registry.navigation.resolve(audience(), locale());
 	assert.equal(publicNavigation.brand.identifier, "core.home");
-	assert.equal(publicNavigation.brand.target, "/");
+	assert.equal(publicNavigation.brand.target, "core.home");
 	assert.equal(publicNavigation.sidebars.length, 0);
 	assert.deepEqual(
 		publicNavigation.actions.map((item) => item.identifier),
@@ -65,7 +95,7 @@ test("résout la navigation publique et protège le catalogue administratif", ()
 	);
 	assert.deepEqual(
 		administration.sidebars[0].items.map((item) => item.identifier),
-		["core.admin.dashboard", "core.admin.modules", "core.admin.interface"],
+		["core.admin.dashboard", "core.admin.modules", "core.admin.interface", "core.admin.pages"],
 	);
 
 	const api = new NativeCatalogApi(registry);
@@ -86,6 +116,7 @@ test("résout la navigation publique et protège le catalogue administratif", ()
 		identity: audience({ authenticated: true, capabilities }),
 	});
 	assert.equal(document.pages[0].route, "/admin");
+	assert.equal(document.navigation.brand.target, "/");
 	assert.equal(document.contributions[0].contributionKey, "native.site");
 });
 
@@ -149,11 +180,18 @@ test("gère installation, désactivation, mise à jour et retrait d’une contri
 				values: [{ locale: "en", value: "Lifecycle proof" }],
 			},
 		],
+		pageComponentContracts: [
+			{
+				identifier: "proof.lifecycle.page",
+				contractVersion: "1.0.0",
+				frontendModuleIdentifier: "proof.lifecycle.page",
+			},
+		],
 		navigationLinks: [
 			{
 				identifier: "proof.lifecycle",
 				mode: "route",
-				target: "/proof-lifecycle",
+				target: "proof.lifecycle",
 				titleTextIdentifier: "proof.lifecycle.title",
 			},
 		],
@@ -167,9 +205,17 @@ test("gère installation, désactivation, mise à jour et retrait d’une contri
 		pages: [
 			{
 				identifier: "proof.lifecycle",
-				route: "/proof-lifecycle",
 				surface: "site",
 				titleTextIdentifier: "proof.lifecycle.title",
+				context: { kind: "none" },
+				routes: [
+					{
+						identifier: "proof.lifecycle",
+						pattern: "/proof-lifecycle",
+						canonical: true,
+					},
+				],
+				initialDocument: pageDocument("proof.lifecycle.page"),
 			},
 		],
 	};

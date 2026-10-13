@@ -16,6 +16,67 @@ const text = (
 		],
 	}) as const;
 
+const pageDocument = (componentIdentifier: string) =>
+	({
+		breakpoints: [
+			{ identifier: "mobile", minimumWidth: 0, columns: 4, rowHeight: 80, gap: 16 },
+			{
+				identifier: "tablet",
+				minimumWidth: 720,
+				columns: 8,
+				rowHeight: 80,
+				gap: 20,
+				inherits: "mobile",
+			},
+			{
+				identifier: "desktop",
+				minimumWidth: 1120,
+				columns: 12,
+				rowHeight: 80,
+				gap: 24,
+				inherits: "tablet",
+			},
+		],
+		regions: [{ identifier: "main", order: 10 }],
+		containers: [
+			{
+				identifier: "main",
+				regionIdentifier: "main",
+				placements: [
+					{
+						breakpoint: "mobile",
+						column: 1,
+						row: 1,
+						columnSpan: 4,
+						rowSpan: 8,
+					},
+					{
+						breakpoint: "tablet",
+						column: 1,
+						row: 1,
+						columnSpan: 8,
+						rowSpan: 8,
+					},
+					{
+						breakpoint: "desktop",
+						column: 1,
+						row: 1,
+						columnSpan: 12,
+						rowSpan: 8,
+					},
+				],
+			},
+		],
+		components: [
+			{
+				identifier: "main",
+				componentIdentifier,
+				containerIdentifier: "main",
+				order: 10,
+			},
+		],
+	}) as const;
+
 export const nativeSiteContribution: NativeContentContribution = {
 	contributionKey: "native.site",
 	owner: { kind: "native-module", identifier: "site" },
@@ -36,6 +97,9 @@ export const nativeSiteContribution: NativeContentContribution = {
 		text("core.admin.dashboard.title", "Tableau de bord", "Dashboard"),
 		text("core.admin.modules.title", "Contributions", "Contributions"),
 		text("core.admin.interface.title", "Interface", "Interface"),
+		text("core.admin.pages.title", "Pages", "Pages"),
+		text("core.account.profile.title", "Profil", "Profile"),
+		text("core.system.unavailable.title", "Page indisponible", "Page unavailable"),
 		text("core.page.home.title", "Compendlore CMS", "Compendlore CMS"),
 		text(
 			"core.page.home.description",
@@ -114,11 +178,52 @@ export const nativeSiteContribution: NativeContentContribution = {
 			],
 		},
 	],
+	pageComponentContracts: [
+		{
+			identifier: "core.site.home",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.site.home",
+		},
+		{
+			identifier: "core.account.profile",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.account.profile",
+		},
+		{
+			identifier: "core.admin.dashboard",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.admin.dashboard",
+			requiredCapabilities: ["core.administration.access"],
+		},
+		{
+			identifier: "core.admin.modules",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.admin.modules",
+			requiredCapabilities: ["core.administration.access"],
+		},
+		{
+			identifier: "core.admin.interface",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.admin.interface",
+			requiredCapabilities: ["core.administration.access"],
+		},
+		{
+			identifier: "core.admin.pages",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.admin.pages",
+			requiredCapabilities: ["core.administration.access"],
+		},
+		{
+			identifier: "core.system.unavailable",
+			contractVersion: "1.0.0",
+			frontendModuleIdentifier: "core.system.unavailable",
+		},
+	],
 	navigationLinks: [
 		{
 			identifier: "core.home",
 			mode: "route",
-			target: "/",
+			target: "core.home",
 			titleTextIdentifier: "core.navigation.home.title",
 			iconIdentifier: "brand",
 		},
@@ -132,7 +237,7 @@ export const nativeSiteContribution: NativeContentContribution = {
 		{
 			identifier: "core.administration",
 			mode: "route",
-			target: "/admin",
+			target: "core.admin.dashboard",
 			titleTextIdentifier: "core.navigation.admin.title",
 			iconIdentifier: "administration",
 			requiredCapabilities: ["core.administration.access"],
@@ -140,7 +245,7 @@ export const nativeSiteContribution: NativeContentContribution = {
 		{
 			identifier: "core.profile",
 			mode: "route",
-			target: "/account",
+			target: "core.account.profile",
 			titleTextIdentifier: "core.navigation.profile.title",
 			iconIdentifier: "account",
 		},
@@ -154,22 +259,29 @@ export const nativeSiteContribution: NativeContentContribution = {
 		{
 			identifier: "core.admin.dashboard",
 			mode: "route",
-			target: "/admin",
+			target: "core.admin.dashboard",
 			titleTextIdentifier: "core.admin.dashboard.title",
 			requiredCapabilities: ["core.administration.access"],
 		},
 		{
 			identifier: "core.admin.modules",
 			mode: "route",
-			target: "/admin/modules",
+			target: "core.admin.modules",
 			titleTextIdentifier: "core.admin.modules.title",
 			requiredCapabilities: ["core.administration.access"],
 		},
 		{
 			identifier: "core.admin.interface",
 			mode: "route",
-			target: "/admin/interface",
+			target: "core.admin.interface",
 			titleTextIdentifier: "core.admin.interface.title",
+			requiredCapabilities: ["core.administration.access"],
+		},
+		{
+			identifier: "core.admin.pages",
+			mode: "route",
+			target: "core.admin.pages",
+			titleTextIdentifier: "core.admin.pages.title",
 			requiredCapabilities: ["core.administration.access"],
 		},
 	],
@@ -254,43 +366,135 @@ export const nativeSiteContribution: NativeContentContribution = {
 			order: 30,
 			requiredCapabilities: ["core.administration.access"],
 		},
+		{
+			identifier: "core.admin.pages",
+			sidebarIdentifier: "core.administration",
+			kind: "link",
+			linkIdentifier: "core.admin.pages",
+			textIdentifier: "core.admin.pages.title",
+			iconIdentifier: "menu",
+			order: 40,
+			requiredCapabilities: ["core.administration.access"],
+		},
 	],
 	pages: [
 		{
 			identifier: "core.home",
-			route: "/",
 			surface: "site",
 			titleTextIdentifier: "core.page.home.title",
 			descriptionTextIdentifier: "core.page.home.description",
 			editable: true,
 			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.home",
+					pattern: "/",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.site.home"),
+		},
+		{
+			identifier: "core.account.profile",
+			surface: "account",
+			titleTextIdentifier: "core.account.profile.title",
+			editable: false,
+			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.account.profile",
+					pattern: "/account",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.account.profile"),
 		},
 		{
 			identifier: "core.admin.dashboard",
-			route: "/admin",
 			surface: "administration",
 			titleTextIdentifier: "core.admin.dashboard.title",
 			requiredCapabilities: ["core.administration.access"],
 			editable: false,
 			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.admin.dashboard",
+					pattern: "/admin",
+					aliases: ["/admin/"],
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.admin.dashboard"),
 		},
 		{
 			identifier: "core.admin.modules",
-			route: "/admin/modules",
 			surface: "administration",
 			titleTextIdentifier: "core.admin.modules.title",
 			requiredCapabilities: ["core.administration.access"],
 			editable: false,
 			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.admin.modules",
+					pattern: "/admin/modules",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.admin.modules"),
 		},
 		{
 			identifier: "core.admin.interface",
-			route: "/admin/interface",
 			surface: "administration",
 			titleTextIdentifier: "core.admin.interface.title",
 			requiredCapabilities: ["core.administration.access"],
 			editable: false,
 			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.admin.interface",
+					pattern: "/admin/interface",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.admin.interface"),
+		},
+		{
+			identifier: "core.admin.pages",
+			surface: "administration",
+			titleTextIdentifier: "core.admin.pages.title",
+			requiredCapabilities: ["core.administration.access"],
+			editable: false,
+			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.admin.pages",
+					pattern: "/admin/pages",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.admin.pages"),
+		},
+		{
+			identifier: "core.system.unavailable",
+			surface: "system",
+			titleTextIdentifier: "core.system.unavailable.title",
+			editable: false,
+			removable: false,
+			context: { kind: "none" },
+			routes: [
+				{
+					identifier: "core.system.unavailable",
+					pattern: "/__system/unavailable",
+					canonical: true,
+				},
+			],
+			initialDocument: pageDocument("core.system.unavailable"),
 		},
 	],
 };

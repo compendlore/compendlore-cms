@@ -615,7 +615,7 @@ function validateNonNegativeLimit(value: number | undefined, maximum: number, la
 
 function validateEndpoint(endpoint: NonNullable<ContributionDefinition["endpoint"]>): void {
 	if (
-		!/^\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*)(?:\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*))*$/.test(
+		!/^\/(?:[a-z0-9][a-z0-9._-]*|\{[a-z][a-z0-9_-]*:(?:integer|locale|slug|string|uuid)\})(?:\/(?:[a-z0-9][a-z0-9._-]*|\{[a-z][a-z0-9_-]*:(?:integer|locale|slug|string|uuid)\}))*$/.test(
 			endpoint.route,
 		)
 	) {
@@ -627,6 +627,44 @@ function validateEndpoint(endpoint: NonNullable<ContributionDefinition["endpoint
 	validateIdentifier(endpoint.businessMethodIdentifier, "méthode métier d’API");
 	if (endpoint.requiredCapability) {
 		validateIdentifier(endpoint.requiredCapability, "permission d’API");
+	}
+	const parameterNames = new Set<string>();
+	for (const parameter of endpoint.parameters ?? []) {
+		validateIdentifier(parameter.name, "paramètre d’API");
+		if (parameterNames.has(parameter.name)) {
+			throw invalid("Un paramètre d’API est déclaré plusieurs fois.");
+		}
+		parameterNames.add(parameter.name);
+		if (parameter.sourceName && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(parameter.sourceName)) {
+			throw invalid("Le nom source d’un paramètre d’API est invalide.");
+		}
+		validateApiSchema(parameter.schema, 0);
+	}
+	for (const placeholder of endpoint.route.matchAll(/\{([a-z][a-z0-9_-]*):[^}]+\}/g)) {
+		const parameter = endpoint.parameters?.find(
+			(candidate) => candidate.source === "path" && candidate.name === placeholder[1],
+		);
+		if (!parameter || parameter.required === false) {
+			throw invalid("Chaque paramètre de chemin doit être déclaré et obligatoire.");
+		}
+	}
+	if (
+		endpoint.parameters?.some(
+			(parameter) => parameter.source === "path" && !endpoint.route.includes(`{${parameter.name}:`),
+		)
+	) {
+		throw invalid("Un paramètre de chemin déclaré est absent de la route.");
+	}
+	for (const date of [endpoint.deprecatedAt, endpoint.sunsetAt]) {
+		if (date && Number.isNaN(Date.parse(date)))
+			throw invalid("Une date de cycle d’API est invalide.");
+	}
+	if (
+		endpoint.deprecatedAt &&
+		endpoint.sunsetAt &&
+		new Date(endpoint.sunsetAt) <= new Date(endpoint.deprecatedAt)
+	) {
+		throw invalid("La date de retrait d’API doit suivre sa dépréciation.");
 	}
 	if (endpoint.quota) {
 		if (

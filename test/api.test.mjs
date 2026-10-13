@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
 	ApiGateway,
@@ -98,6 +99,84 @@ async function createApi() {
 		{ requester: owner },
 	);
 	await registry.activate("api-endpoint.editorial.slug", { requester: owner });
+	await registry.registerMethod(
+		{
+			type: "method",
+			identifier: "editorial.inspect",
+			owner,
+			version: "1.0.0",
+			withdrawalPolicy: "archive",
+			method: { transaction: "none", timeoutMs: 1_000, idempotent: true },
+		},
+		{
+			validateInput: (value) => Boolean(value && typeof value === "object" && "id" in value),
+			validateOutput: (value) => Boolean(value && typeof value === "object" && "id" in value),
+			async execute(_context, input) {
+				return input;
+			},
+		},
+		{ requester: owner },
+	);
+	await registry.activate("method.editorial.inspect", { requester: owner });
+	await registry.register(
+		{
+			type: "api-endpoint",
+			identifier: "editorial.inspect",
+			owner,
+			version: "1.0.0",
+			withdrawalPolicy: "archive",
+			dependencies: [{ contributionKey: "method.editorial.inspect" }],
+			endpoint: {
+				audience: "site",
+				method: "POST",
+				route: "/editorial/{id:integer}",
+				contractVersion: "2.1.0",
+				businessMethodIdentifier: "editorial.inspect",
+				parameters: [
+					{
+						name: "id",
+						source: "path",
+						required: true,
+						schema: { type: "number" },
+					},
+					{
+						name: "locale",
+						source: "query",
+						required: true,
+						schema: { type: "string", maximumLength: 35 },
+					},
+					{
+						name: "title",
+						source: "body",
+						required: true,
+						schema: { type: "string", maximumLength: 80 },
+					},
+				],
+				input: {
+					type: "object",
+					properties: {
+						id: { type: "number" },
+						locale: { type: "string" },
+						title: { type: "string" },
+					},
+					required: ["id", "locale", "title"],
+					additionalProperties: false,
+				},
+				output: {
+					type: "object",
+					properties: {
+						id: { type: "number" },
+						locale: { type: "string" },
+						title: { type: "string" },
+					},
+					required: ["id", "locale", "title"],
+					additionalProperties: false,
+				},
+			},
+		},
+		{ requester: owner },
+	);
+	await registry.activate("api-endpoint.editorial.inspect", { requester: owner });
 	const authentication = new InMemoryApiAuthenticator();
 	authentication.registerSession("session-token", {
 		id: actorId,
@@ -129,6 +208,95 @@ test("le frontend invoque une méthode enregistrée sans connaître son module",
 	assert.equal(response.status, 200);
 	assert.deepEqual(response.body, { slug: "mon-univers" });
 	assert.equal(audit.records.at(-1).outcome, "allowed");
+});
+
+test("négocie la version hors URL et extrait les paramètres typés par source", async () => {
+	const { gateway } = await createApi();
+	const response = await gateway.invoke({
+		audience: "site",
+		method: "POST",
+		route: "/editorial/42",
+		body: { title: "Caerthia" },
+		query: { locale: "fr-FR" },
+		credentials: { sessionToken: "session-token" },
+	});
+	assert.equal(response.status, 200);
+	assert.deepEqual(response.body, { id: 42, locale: "fr-FR", title: "Caerthia" });
+	assert.equal(response.headers["x-api-contract-version"], "2.1.0");
+	const incompatible = await gateway.invoke({
+		audience: "site",
+		method: "POST",
+		route: "/editorial/42",
+		contractVersion: "1",
+		body: { title: "Caerthia" },
+		query: { locale: "fr-FR" },
+		credentials: { sessionToken: "session-token" },
+	});
+	assert.equal(incompatible.status, 404);
+});
+
+test("protège l’audience administrative par capacité, session dédiée et 2FA récent", async () => {
+	const { registry, authentication, gateway } = await createApi();
+	await registry.register(
+		{
+			type: "api-endpoint",
+			identifier: "editorial.admin-slug",
+			owner,
+			version: "1.0.0",
+			withdrawalPolicy: "archive",
+			dependencies: [{ contributionKey: "method.editorial.generate-slug" }],
+			endpoint: {
+				audience: "administration",
+				method: "POST",
+				route: "/editorial/admin-slug",
+				contractVersion: "1.0.0",
+				businessMethodIdentifier: "editorial.generate-slug",
+				input: inputSchema,
+				output: outputSchema,
+			},
+		},
+		{ requester: owner },
+	);
+	await registry.activate("api-endpoint.editorial.admin-slug", { requester: owner });
+	const denied = await gateway.invoke({
+		audience: "administration",
+		method: "POST",
+		route: "/editorial/admin-slug",
+		body: { title: "Admin" },
+		credentials: { sessionToken: "session-token" },
+	});
+	assert.equal(denied.status, 403);
+	authentication.registerSession("admin-session", {
+		id: "00000000-0000-4000-8000-000000000061",
+		kind: "user",
+		capabilities: new Set(["core.administration.access", "editorial.slug.generate"]),
+		administrativeSession: true,
+		secondFactorVerifiedAt: new Date(),
+	});
+	const allowed = await gateway.invoke({
+		audience: "administration",
+		method: "POST",
+		route: "/editorial/admin-slug",
+		body: { title: "Admin" },
+		credentials: { sessionToken: "admin-session" },
+	});
+	assert.equal(allowed.status, 200);
+});
+
+test("les transports Encore conservent des chemins stables sans version", async () => {
+	const source = await readFile(
+		new URL("../backend/api/src/endpoints.ts", import.meta.url),
+		"utf8",
+	);
+	for (const path of [
+		"/internal/*route",
+		"/api/site/*route",
+		"/api/administration/*route",
+		"/api/public/*route",
+	]) {
+		assert.match(source, new RegExp(path.replaceAll("/", "\\/").replace("*", "\\*")));
+	}
+	assert.doesNotMatch(source, /:contractVersion/);
 });
 
 test("centralise validation, autorisation, quota et erreurs publiques", async () => {

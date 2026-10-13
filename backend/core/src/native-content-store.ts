@@ -15,7 +15,14 @@ import type {
 	SidebarDefinition,
 	SidebarItemDefinition,
 } from "./navigation.js";
-import type { PageDefinition } from "./pages.js";
+import type {
+	PageActionContractDefinition,
+	PageComponentContractDefinition,
+	PageContextTypeDefinition,
+	PageDataProviderContractDefinition,
+	PageDefinition,
+	RouteParameterTypeDefinition,
+} from "./pages.js";
 
 export interface NativeContentMaterialization {
 	readonly contributionKey: string;
@@ -32,6 +39,11 @@ export interface NativeContentMaterialization {
 	readonly navigationItems: readonly MainNavigationItemDefinition[];
 	readonly sidebars: readonly SidebarDefinition[];
 	readonly sidebarItems: readonly SidebarItemDefinition[];
+	readonly routeParameterTypes: readonly RouteParameterTypeDefinition[];
+	readonly pageComponentContracts: readonly PageComponentContractDefinition[];
+	readonly pageDataProviderContracts: readonly PageDataProviderContractDefinition[];
+	readonly pageActionContracts: readonly PageActionContractDefinition[];
+	readonly pageContextTypes: readonly PageContextTypeDefinition[];
 	readonly pages: readonly PageDefinition[];
 }
 
@@ -334,6 +346,7 @@ export class PostgresNativeContentPersistence implements NativeContentPersistenc
 					contribution_key,
 					mode,
 					target,
+					route_parameters,
 					title_text_id,
 					tooltip_text_id,
 					icon_identifier,
@@ -345,6 +358,7 @@ export class PostgresNativeContentPersistence implements NativeContentPersistenc
 					${link.contributionKey},
 					${link.mode},
 					${link.target},
+					${JSON.stringify(link.routeParameters ?? {})}::jsonb,
 					(SELECT id FROM core.localized_text_resources WHERE identifier = ${link.titleTextIdentifier}),
 					(SELECT id FROM core.localized_text_resources WHERE identifier = ${link.tooltipTextIdentifier ?? ""}),
 					${link.iconIdentifier ?? null},
@@ -355,6 +369,7 @@ export class PostgresNativeContentPersistence implements NativeContentPersistenc
 				SET
 					mode = EXCLUDED.mode,
 					target = EXCLUDED.target,
+					route_parameters = EXCLUDED.route_parameters,
 					icon_identifier = EXCLUDED.icon_identifier,
 					required_capabilities = EXCLUDED.required_capabilities,
 					definition_fingerprint = EXCLUDED.definition_fingerprint,
@@ -494,41 +509,405 @@ export class PostgresNativeContentPersistence implements NativeContentPersistenc
 		transaction: TransactionContext,
 		materialization: NativeContentMaterialization,
 	): Promise<void> {
+		for (const parameterType of materialization.routeParameterTypes) {
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_route_parameter_types (
+					identifier,
+					contribution_key,
+					base_type,
+					maximum_length,
+					allowed_values
+				)
+				VALUES (
+					${parameterType.identifier},
+					${materialization.contributionKey},
+					${parameterType.base},
+					${parameterType.maximumLength ?? null},
+					${JSON.stringify(parameterType.allowedValues ?? [])}::jsonb
+				)
+				ON CONFLICT (identifier) DO UPDATE
+				SET
+					base_type = EXCLUDED.base_type,
+					maximum_length = EXCLUDED.maximum_length,
+					allowed_values = EXCLUDED.allowed_values,
+					updated_at = now()
+			`);
+		}
+		for (const contract of materialization.pageComponentContracts) {
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_component_contracts (
+					identifier,
+					contribution_key,
+					contract_version,
+					frontend_module_identifier,
+					allowed_properties,
+					slots,
+					events,
+					required_capabilities,
+					definition_fingerprint
+				)
+				VALUES (
+					${contract.identifier},
+					${materialization.contributionKey},
+					${contract.contractVersion},
+					${contract.frontendModuleIdentifier},
+					${JSON.stringify(contract.allowedProperties ?? [])}::jsonb,
+					${JSON.stringify(contract.slots ?? [])}::jsonb,
+					${JSON.stringify(contract.events ?? [])}::jsonb,
+					${[...(contract.requiredCapabilities ?? [])]},
+					${hash(contract)}
+				)
+				ON CONFLICT (identifier) DO UPDATE
+				SET
+					contract_version = EXCLUDED.contract_version,
+					frontend_module_identifier = EXCLUDED.frontend_module_identifier,
+					allowed_properties = EXCLUDED.allowed_properties,
+					slots = EXCLUDED.slots,
+					events = EXCLUDED.events,
+					required_capabilities = EXCLUDED.required_capabilities,
+					definition_fingerprint = EXCLUDED.definition_fingerprint,
+					updated_at = now()
+			`);
+		}
+		for (const contract of materialization.pageDataProviderContracts) {
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_data_provider_contracts (
+					identifier,
+					contribution_key,
+					contract_version,
+					business_method_identifier,
+					context_kinds,
+					definition_fingerprint
+				)
+				VALUES (
+					${contract.identifier},
+					${materialization.contributionKey},
+					${contract.contractVersion},
+					${contract.businessMethodIdentifier},
+					${[...contract.contextKinds]},
+					${hash(contract)}
+				)
+				ON CONFLICT (identifier) DO UPDATE
+				SET
+					contract_version = EXCLUDED.contract_version,
+					business_method_identifier = EXCLUDED.business_method_identifier,
+					context_kinds = EXCLUDED.context_kinds,
+					definition_fingerprint = EXCLUDED.definition_fingerprint,
+					updated_at = now()
+			`);
+		}
+		for (const contract of materialization.pageActionContracts) {
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_action_contracts (
+					identifier,
+					contribution_key,
+					contract_version,
+					business_method_identifier,
+					required_capability,
+					definition_fingerprint
+				)
+				VALUES (
+					${contract.identifier},
+					${materialization.contributionKey},
+					${contract.contractVersion},
+					${contract.businessMethodIdentifier},
+					${contract.requiredCapability ?? null},
+					${hash(contract)}
+				)
+				ON CONFLICT (identifier) DO UPDATE
+				SET
+					contract_version = EXCLUDED.contract_version,
+					business_method_identifier = EXCLUDED.business_method_identifier,
+					required_capability = EXCLUDED.required_capability,
+					definition_fingerprint = EXCLUDED.definition_fingerprint,
+					updated_at = now()
+			`);
+		}
+		for (const contextType of materialization.pageContextTypes) {
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_context_types (
+					identifier,
+					contribution_key,
+					contract_version,
+					resolver_method_identifier,
+					parameter_types,
+					definition_fingerprint
+				)
+				VALUES (
+					${contextType.identifier},
+					${materialization.contributionKey},
+					${contextType.contractVersion},
+					${contextType.resolverMethodIdentifier},
+					${JSON.stringify(contextType.parameterTypes)}::jsonb,
+					${hash(contextType)}
+				)
+				ON CONFLICT (identifier) DO UPDATE
+				SET
+					contract_version = EXCLUDED.contract_version,
+					resolver_method_identifier = EXCLUDED.resolver_method_identifier,
+					parameter_types = EXCLUDED.parameter_types,
+					definition_fingerprint = EXCLUDED.definition_fingerprint,
+					updated_at = now()
+			`);
+		}
 		for (const page of materialization.pages) {
+			const canonicalRoute = page.routes.find((route) => route.canonical) ?? page.routes[0]!;
 			await transaction.query(/* pgsql */ sql`
 				INSERT INTO core.pages (
 					identifier,
 					contribution_key,
 					route,
 					surface,
+					owner_kind,
 					title_text_id,
 					description_text_id,
 					required_capabilities,
 					is_editable,
 					is_removable,
+					archived,
+					context_definition,
+					canonical_entity_type_identifier,
+					canonical_usage,
 					definition_fingerprint
 				)
 				VALUES (
 					${page.identifier},
 					${page.contributionKey},
-					${page.route},
+					${canonicalRoute.pattern},
 					${page.surface},
+					${page.ownerKind},
 					(SELECT id FROM core.localized_text_resources WHERE identifier = ${page.titleTextIdentifier}),
 					(SELECT id FROM core.localized_text_resources WHERE identifier = ${page.descriptionTextIdentifier ?? ""}),
 					${[...page.requiredCapabilities]},
 					${page.editable},
 					${page.removable},
+					${page.archived ?? false},
+					${JSON.stringify(page.context)}::jsonb,
+					${page.canonicalFor?.entityTypeIdentifier ?? null},
+					${page.canonicalFor?.usage ?? null},
 					${hash(page)}
 				)
 				ON CONFLICT (identifier) DO UPDATE
 				SET
 					route = EXCLUDED.route,
+					owner_kind = EXCLUDED.owner_kind,
 					required_capabilities = EXCLUDED.required_capabilities,
 					is_editable = EXCLUDED.is_editable,
 					is_removable = EXCLUDED.is_removable,
+					archived = EXCLUDED.archived,
+					context_definition = EXCLUDED.context_definition,
+					canonical_entity_type_identifier = EXCLUDED.canonical_entity_type_identifier,
+					canonical_usage = EXCLUDED.canonical_usage,
 					definition_fingerprint = EXCLUDED.definition_fingerprint,
 					updated_at = now()
 			`);
+			for (const route of page.routes) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_routes (
+						page_id,
+						identifier,
+						pattern,
+						locale_tag,
+						priority,
+						canonical,
+						active
+					)
+					SELECT
+						id,
+						${route.identifier},
+						${route.pattern},
+						${route.locale ?? null},
+						${route.priority ?? 0},
+						${route.canonical ?? false},
+						${route.active ?? true}
+					FROM core.pages
+					WHERE identifier = ${page.identifier}
+					ON CONFLICT (identifier) DO UPDATE
+					SET
+						pattern = EXCLUDED.pattern,
+						locale_tag = EXCLUDED.locale_tag,
+						priority = EXCLUDED.priority,
+						canonical = EXCLUDED.canonical,
+						active = EXCLUDED.active,
+						updated_at = now()
+				`);
+				await transaction.query(/* pgsql */ sql`
+					DELETE FROM core.page_route_aliases
+					WHERE route_id = (
+						SELECT id FROM core.page_routes WHERE identifier = ${route.identifier}
+					)
+				`);
+				for (const alias of route.aliases ?? []) {
+					await transaction.query(/* pgsql */ sql`
+						INSERT INTO core.page_route_aliases (route_id, pattern)
+						SELECT id, ${alias}
+						FROM core.page_routes
+						WHERE identifier = ${route.identifier}
+					`);
+				}
+			}
+			for (const route of page.routes) {
+				if (!route.redirectToRouteIdentifier) continue;
+				await transaction.query(/* pgsql */ sql`
+					UPDATE core.page_routes
+					SET redirect_to_route_id = (
+						SELECT id
+						FROM core.page_routes
+						WHERE identifier = ${route.redirectToRouteIdentifier}
+					)
+					WHERE identifier = ${route.identifier}
+				`);
+			}
+			await transaction.query(/* pgsql */ sql`
+				INSERT INTO core.page_revisions (
+					page_id,
+					revision,
+					state,
+					document,
+					validated_at,
+					published_at
+				)
+				SELECT
+					id,
+					1,
+					${page.published ? "published" : "draft"},
+					${JSON.stringify(page.initialDocument)}::jsonb,
+					${page.published ? new Date() : null},
+					${page.published ? new Date() : null}
+				FROM core.pages
+				WHERE identifier = ${page.identifier}
+				ON CONFLICT (page_id, revision) DO NOTHING
+			`);
+			if (page.published) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_publications (page_id, revision_id)
+					SELECT pages.id, revisions.id
+					FROM core.pages AS pages
+					JOIN core.page_revisions AS revisions
+						ON revisions.page_id = pages.id AND revisions.revision = 1
+					WHERE pages.identifier = ${page.identifier}
+					ON CONFLICT (page_id) DO NOTHING
+				`);
+			}
+			for (const breakpoint of page.initialDocument.breakpoints) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_grid_breakpoints (
+						revision_id,
+						identifier,
+						minimum_width,
+						columns,
+						row_height,
+						gap,
+						inherits_identifier
+					)
+					SELECT
+						revisions.id,
+						${breakpoint.identifier},
+						${breakpoint.minimumWidth},
+						${breakpoint.columns},
+						${breakpoint.rowHeight},
+						${breakpoint.gap},
+						${breakpoint.inherits ?? null}
+					FROM core.page_revisions AS revisions
+					JOIN core.pages AS pages ON pages.id = revisions.page_id
+					WHERE pages.identifier = ${page.identifier} AND revisions.revision = 1
+					ON CONFLICT (revision_id, identifier) DO NOTHING
+				`);
+			}
+			for (const region of page.initialDocument.regions) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_regions (revision_id, identifier, display_order)
+					SELECT revisions.id, ${region.identifier}, ${region.order}
+					FROM core.page_revisions AS revisions
+					JOIN core.pages AS pages ON pages.id = revisions.page_id
+					WHERE pages.identifier = ${page.identifier} AND revisions.revision = 1
+					ON CONFLICT (revision_id, identifier) DO NOTHING
+				`);
+			}
+			for (const container of page.initialDocument.containers) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_containers (
+						revision_id,
+						region_id,
+						identifier,
+						minimum_column_span,
+						minimum_row_span
+					)
+					SELECT
+						revisions.id,
+						regions.id,
+						${container.identifier},
+						${container.minimumColumnSpan ?? 1},
+						${container.minimumRowSpan ?? 1}
+					FROM core.page_revisions AS revisions
+					JOIN core.pages AS pages ON pages.id = revisions.page_id
+					JOIN core.page_regions AS regions
+						ON regions.revision_id = revisions.id
+						AND regions.identifier = ${container.regionIdentifier}
+					WHERE pages.identifier = ${page.identifier} AND revisions.revision = 1
+					ON CONFLICT (revision_id, identifier) DO NOTHING
+				`);
+				for (const placement of container.placements) {
+					await transaction.query(/* pgsql */ sql`
+						INSERT INTO core.page_container_placements (
+							container_id,
+							breakpoint_id,
+							grid_column,
+							grid_row,
+							column_span,
+							row_span
+						)
+						SELECT
+							containers.id,
+							breakpoints.id,
+							${placement.column},
+							${placement.row},
+							${placement.columnSpan},
+							${placement.rowSpan}
+						FROM core.page_containers AS containers
+						JOIN core.page_revisions AS revisions ON revisions.id = containers.revision_id
+						JOIN core.pages AS pages ON pages.id = revisions.page_id
+						JOIN core.page_grid_breakpoints AS breakpoints
+							ON breakpoints.revision_id = revisions.id
+							AND breakpoints.identifier = ${placement.breakpoint}
+						WHERE
+							pages.identifier = ${page.identifier}
+							AND revisions.revision = 1
+							AND containers.identifier = ${container.identifier}
+						ON CONFLICT (container_id, breakpoint_id) DO NOTHING
+					`);
+				}
+			}
+			for (const component of page.initialDocument.components) {
+				await transaction.query(/* pgsql */ sql`
+					INSERT INTO core.page_component_instances (
+						revision_id,
+						container_id,
+						identifier,
+						component_identifier,
+						display_order,
+						properties,
+						sources,
+						action_identifiers
+					)
+					SELECT
+						revisions.id,
+						containers.id,
+						${component.identifier},
+						${component.componentIdentifier},
+						${component.order},
+						${JSON.stringify(component.properties ?? {})}::jsonb,
+						${JSON.stringify(component.sources ?? {})}::jsonb,
+						${[...(component.actionIdentifiers ?? [])]}
+					FROM core.page_revisions AS revisions
+					JOIN core.pages AS pages ON pages.id = revisions.page_id
+					JOIN core.page_containers AS containers
+						ON containers.revision_id = revisions.id
+						AND containers.identifier = ${component.containerIdentifier}
+					WHERE pages.identifier = ${page.identifier} AND revisions.revision = 1
+					ON CONFLICT (revision_id, identifier) DO NOTHING
+				`);
+			}
 			await transaction.query(/* pgsql */ sql`
 				INSERT INTO core.page_states (page_id, published)
 				SELECT id, ${page.published}
