@@ -59,6 +59,23 @@ export class ContributionGraph {
 			.sort();
 	}
 
+	versionCompatibilityBlockers(key: string): readonly string[] {
+		const contribution = this.require(key);
+		return [...this.contributions.values()]
+			.filter((candidate) => candidate.state === "active")
+			.filter((candidate) =>
+				(candidate.dependencies ?? []).some(
+					(dependency) =>
+						dependency.contributionKey === key &&
+						!dependency.optional &&
+						Boolean(dependency.versionRange) &&
+						!satisfiesVersion(contribution.version, dependency.versionRange!),
+				),
+			)
+			.map((candidate) => candidate.key)
+			.sort();
+	}
+
 	inspect(key: string): ContributionInspection {
 		const contribution = this.require(key);
 		const dependencies = (contribution.dependencies ?? [])
@@ -70,11 +87,15 @@ export class ContributionGraph {
 			)
 			.map((candidate) => candidate.key)
 			.sort();
+		const activationBlockers = this.activationBlockers(key);
+		const withdrawalBlockers = this.withdrawalBlockers(key);
 		return {
 			contribution,
 			dependencies,
 			dependents,
-			blockers: this.activationBlockers(key),
+			activationBlockers,
+			withdrawalBlockers,
+			blockers: [...new Set([...activationBlockers, ...withdrawalBlockers])].sort(),
 		};
 	}
 
@@ -118,11 +139,25 @@ export function satisfiesVersion(version: string, range: string): boolean {
 		);
 	}
 	const [, operator, minimum] = match;
+	const versionPrerelease = version.split("+")[0]!.includes("-");
+	const minimumPrerelease = minimum!.split("+")[0]!.includes("-");
+	if (versionPrerelease && !minimumPrerelease) return false;
 	const comparison = compareSemver(version, minimum!);
 	if (operator === ">=") return comparison >= 0;
 	if (operator === ">") return comparison > 0;
-	const [major, minor] = minimum!.split(".").map(Number);
-	const [candidateMajor, candidateMinor] = version.split(".").map(Number);
-	if (operator === "^") return comparison >= 0 && candidateMajor === major;
-	return comparison >= 0 && candidateMajor === major && candidateMinor === minor;
+	const [major, minor, patch] = versionCore(minimum!);
+	const upperBound =
+		operator === "~"
+			? `${major}.${minor + 1}.0`
+			: major > 0
+				? `${major + 1}.0.0`
+				: minor > 0
+					? `0.${minor + 1}.0`
+					: `0.0.${patch + 1}`;
+	return comparison >= 0 && compareSemver(version, upperBound) < 0;
+}
+
+function versionCore(version: string): readonly [number, number, number] {
+	const [major, minor, patch] = version.split("+")[0]!.split("-")[0]!.split(".").map(Number);
+	return [major!, minor!, patch!];
 }

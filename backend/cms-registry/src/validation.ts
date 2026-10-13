@@ -1,6 +1,8 @@
 import type { CoreJsonValue, RegistryMutationCandidate } from "../../core/src/index.js";
 import {
 	contributionKey,
+	contributionTypes,
+	type ConfigurationFieldDefinition,
 	type ContributionDefinition,
 	type ContributionOwner,
 } from "./contracts.js";
@@ -11,16 +13,49 @@ const identifierPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const localePattern = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 const semverPattern =
 	/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const knownContributionTypes = new Set<ContributionDefinition["type"]>(contributionTypes);
+const ownerKinds = new Set<ContributionOwner["kind"]>([
+	"addon",
+	"core",
+	"instance",
+	"native-module",
+]);
+const withdrawalPolicies = new Set<ContributionDefinition["withdrawalPolicy"]>([
+	"archive",
+	"block-uninstall",
+	"delete",
+	"preserve-data",
+]);
+const replacementPolicies = new Set<NonNullable<ContributionDefinition["replacementPolicy"]>>([
+	"explicit",
+	"forbidden",
+	"same-owner",
+]);
 
 export function validateContributionDefinition(definition: ContributionDefinition): void {
+	if (!isRecord(definition)) throw invalid("La contribution doit être un objet.");
+	if (!knownContributionTypes.has(definition.type)) {
+		throw invalid("Le type de contribution est inconnu.");
+	}
 	validateIdentifier(definition.identifier, "contribution");
 	validateOwner(definition.owner);
-	if (!semverPattern.test(definition.version)) {
+	if (!withdrawalPolicies.has(definition.withdrawalPolicy)) {
+		throw invalid("La politique de retrait est inconnue.");
+	}
+	if (
+		definition.replacementPolicy !== undefined &&
+		!replacementPolicies.has(definition.replacementPolicy)
+	) {
+		throw invalid("La politique de remplacement est inconnue.");
+	}
+	if (typeof definition.version !== "string" || !semverPattern.test(definition.version)) {
 		throw invalid("La version doit respecter SemVer.");
 	}
 	const key = contributionKey(definition.type, definition.identifier);
 	const dependencies = new Set<string>();
+	assertOptionalArray(definition.dependencies, "dépendances");
 	for (const dependency of definition.dependencies ?? []) {
+		if (!isRecord(dependency)) throw invalid("Une dépendance doit être un objet.");
 		validateIdentifier(dependency.contributionKey, "dépendance");
 		if (dependency.contributionKey === key) throw invalid("Une contribution dépend d’elle-même.");
 		if (dependencies.has(dependency.contributionKey)) {
@@ -36,9 +71,15 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 			throw invalid("La plage de version d’une dépendance est invalide.");
 		}
 	}
-	for (const capability of definition.requiredCapabilities ?? []) {
+	assertOptionalArray(definition.requiredCapabilities, "capacités requises");
+	const requiredCapabilities = definition.requiredCapabilities ?? [];
+	if (requiredCapabilities.length > 256) {
+		throw invalid("Une contribution déclare trop de capacités requises.");
+	}
+	for (const capability of requiredCapabilities) {
 		validateIdentifier(capability, "capacité");
 	}
+	validateUniqueValues(requiredCapabilities, "capacité requise");
 	if (definition.type === "method" && !definition.method) {
 		throw invalid("Une contribution de méthode doit déclarer son contrat.");
 	}
@@ -678,6 +719,10 @@ export function compareSemver(first: string, second: string): number {
 }
 
 export function validateOwner(owner: ContributionOwner): void {
+	if (!isRecord(owner)) throw invalid("Le propriétaire doit être un objet.");
+	if (!ownerKinds.has(owner.kind)) {
+		throw invalid("Le type de propriétaire est inconnu.");
+	}
 	validateIdentifier(owner.identifier, "propriétaire");
 	if (owner.kind === "core" && owner.identifier !== "core") {
 		throw invalid("Le propriétaire Core doit utiliser l’identifiant core.");
@@ -686,13 +731,34 @@ export function validateOwner(owner: ContributionOwner): void {
 
 function validateConfiguration(definition: ContributionDefinition): void {
 	const keys = new Set<string>();
-	for (const field of definition.configuration ?? []) {
+	assertOptionalArray(definition.configuration, "configurations");
+	const fields = definition.configuration ?? [];
+	if (fields.length > 256) throw invalid("Une contribution déclare trop de configurations.");
+	for (const field of fields) {
+		if (!isRecord(field)) throw invalid("Une configuration doit être un objet.");
 		validateIdentifier(field.key, "configuration");
 		if (keys.has(field.key)) throw invalid("Une clé de configuration est dupliquée.");
 		keys.add(field.key);
 		assertJsonValue(field.defaultValue);
-		for (const value of field.allowedValues ?? []) assertJsonValue(value);
-		if (Object.keys(field.description).length === 0) {
+		validateConfigurationValue(field.defaultValue, field.type, field.key);
+		assertOptionalArray(field.allowedValues, "valeurs autorisées");
+		const allowedValues = field.allowedValues ?? [];
+		if (allowedValues.length > 1_000) {
+			throw invalid("Une configuration déclare trop de valeurs autorisées.");
+		}
+		for (const value of allowedValues) {
+			assertJsonValue(value);
+			validateConfigurationValue(value, field.type, field.key);
+		}
+		const serializedAllowedValues = allowedValues.map(canonicalJson);
+		validateUniqueValues(serializedAllowedValues, "valeur de configuration");
+		if (
+			allowedValues.length > 0 &&
+			!serializedAllowedValues.includes(canonicalJson(field.defaultValue))
+		) {
+			throw invalid("La valeur par défaut doit appartenir aux valeurs autorisées.");
+		}
+		if (!isRecord(field.description) || Object.keys(field.description).length === 0) {
 			throw invalid("Une configuration doit posséder une description traduite.");
 		}
 		validateLocalizedText(field.description);
@@ -701,12 +767,58 @@ function validateConfiguration(definition: ContributionDefinition): void {
 
 function validateTranslations(translations: ContributionDefinition["translations"]): void {
 	if (!translations) return;
+	if (!isRecord(translations)) throw invalid("Les traductions doivent former un objet.");
+	if (Object.keys(translations).length === 0) {
+		throw invalid("Une déclaration de traductions doit contenir au moins une langue.");
+	}
 	for (const [locale, entries] of Object.entries(translations)) {
 		if (!localePattern.test(locale)) throw invalid(`La langue ${locale} est invalide.`);
+		if (!isRecord(entries)) throw invalid(`Les traductions de ${locale} doivent former un objet.`);
+		if (Object.keys(entries).length === 0) {
+			throw invalid(`La langue ${locale} doit contenir au moins une traduction.`);
+		}
 		for (const [key, value] of Object.entries(entries)) {
 			validateIdentifier(key, "traduction");
 			if (!value.trim()) throw invalid("Une traduction ne peut pas être vide.");
 		}
+	}
+}
+
+function validateConfigurationValue(
+	value: CoreJsonValue,
+	type: ConfigurationFieldDefinition["type"],
+	key: string,
+): void {
+	const valid =
+		type === "json" ||
+		(type === "boolean" && typeof value === "boolean") ||
+		(type === "integer" && typeof value === "number" && Number.isSafeInteger(value)) ||
+		(type === "number" && typeof value === "number" && Number.isFinite(value)) ||
+		(["secret-reference", "string"].includes(type) && typeof value === "string");
+	if (!valid) {
+		throw invalid(`La valeur de configuration ${key} ne correspond pas à son type.`);
+	}
+	if (type === "secret-reference" && typeof value === "string" && value !== "") {
+		validateSecretReference(value);
+	}
+}
+
+function canonicalJson(value: CoreJsonValue): string {
+	if (value === null || typeof value !== "object") return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	return `{${Object.entries(value)
+		.sort(([first], [second]) => first.localeCompare(second))
+		.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+		.join(",")}}`;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertOptionalArray(value: unknown, label: string): void {
+	if (value !== undefined && !Array.isArray(value)) {
+		throw invalid(`La déclaration ${label} doit être une liste.`);
 	}
 }
 
@@ -719,7 +831,7 @@ function validateLocalizedText(value: Readonly<Record<string, string>>): void {
 }
 
 function validateIdentifier(value: string, label: string): void {
-	if (!identifierPattern.test(value) || value.length > 160) {
+	if (typeof value !== "string" || !identifierPattern.test(value) || value.length > 160) {
 		throw invalid(`L’identifiant de ${label} est invalide.`);
 	}
 }

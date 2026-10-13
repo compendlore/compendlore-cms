@@ -25,6 +25,8 @@ until the release manager assigns a version and publication date.
 
 ### Changed
 
+- Centralized the contribution-type inventory so validation and catalog projection cannot drift
+  apart as new Registry types are introduced.
 - Extracted the public addon SDK contracts into the standalone `compendlore-addon-sdk` repository.
 - Navigation is sourced from dedicated registries instead of hard-coded frontend entries.
 - Internal architecture, planning, and audit documents are maintained in the workspace documentation
@@ -34,6 +36,21 @@ until the release manager assigns a version and publication date.
 
 ### Fixed
 
+- Required every registered-method execution to cross the Core authorization port and restricted
+  cross-layer imports to declared public entrypoints.
+- Completed Registry lifecycle recovery so withdrawn contributions can be reinstalled,
+  reconciliation rejects same-version drift, downgrades and duplicate declarations, and invalid
+  transitions fail.
+- Prevented Registry updates from invalidating active dependency graphs, exposed separate activation
+  and withdrawal blockers, and corrected caret compatibility for pre-1.0 semantic versions.
+- Hardened registered-method dispatch with handler validation, bounded input-aware idempotency,
+  normalized contract failures, cooperative timeout cancellation, and transaction verification.
+- Isolated stored Registry contributions from caller-owned object references and protected Core and
+  extension ownership across every read and write boundary.
+- Enforced contribution, owner, withdrawal, replacement, capability, configuration-value, and
+  translation contracts at runtime before Registry persistence.
+- Added an explicit architecture check for the Encore Registry service, its TypeScript workspace,
+  its Core port, and its prohibition from owning PostgreSQL resources.
 - Connected the Encore runtime to the Core bootstrap, persistent instance identity, structured logs,
   database supervision, bounded shutdown, and truthful readiness checks.
 - Added repeatable validation for the applied Core schema, its foundational constraints, indexes,

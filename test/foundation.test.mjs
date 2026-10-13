@@ -1,12 +1,46 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { URL } from "node:url";
 import { foundation } from "../backend/build/core/src/index.js";
+import { foundation as registryFoundation } from "../backend/build/cms-registry/src/index.js";
 
 test("expose une fondation minimale", () => {
 	assert.equal(foundation.packageName, "@compendlore/core");
 	assert.equal(foundation.status, "operational");
+});
+
+test("le socle technique du Registry respecte les frontières Encore et Core", async () => {
+	const registrySourceDirectory = new URL("../backend/cms-registry/src/", import.meta.url);
+	const sourceFiles = (await readdir(registrySourceDirectory)).filter((name) =>
+		name.endsWith(".ts"),
+	);
+	const [service, backendTsconfig, layers, ...sources] = await Promise.all([
+		readFile(new URL("../backend/cms-registry/encore.service.ts", import.meta.url), "utf8"),
+		readFile(new URL("../backend/tsconfig.json", import.meta.url), "utf8"),
+		readFile(new URL("../architecture.layers.json", import.meta.url), "utf8"),
+		...sourceFiles.map((name) => readFile(new URL(name, registrySourceDirectory), "utf8")),
+	]);
+	const registrySource = sources.join("\n");
+
+	assert.equal(registryFoundation.packageName, "@compendlore/cms-registry");
+	assert.equal(registryFoundation.status, "operational");
+	assert.match(service, /new Service\("cms-registry"\)/);
+	assert.match(backendTsconfig, /"include": \["\*\*\/\*\.ts"\]/);
+	assert.match(layers, /"name": "registry"[\s\S]*?"mayImport": \["core"\]/);
+	assert.match(
+		layers,
+		/"name": "core"[\s\S]*?"publicEntrypoints": \["backend\/core\/src\/index"\]/,
+	);
+	assert.match(
+		layers,
+		/"name": "registry"[\s\S]*?"publicEntrypoints": \["backend\/cms-registry\/src\/index"\]/,
+	);
+	assert.match(registrySource, /RegistryCorePort/);
+	assert.doesNotMatch(
+		registrySource,
+		/encore\.dev\/storage\/sqldb|new SQLDatabase|core\/(?:database|src\/postgres-store)/,
+	);
 });
 
 test("la migration fondatrice couvre les tables et protections minimales du Core", async () => {

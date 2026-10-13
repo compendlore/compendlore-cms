@@ -6,6 +6,7 @@ import type {
 } from "../../core/src/index.js";
 import {
 	contributionKey,
+	contributionTypes,
 	sameOwner,
 	type ContributionDefinition,
 	type ContributionInspection,
@@ -24,25 +25,6 @@ import {
 	toMutationCandidate,
 	validateContributionDefinition,
 } from "./validation.js";
-
-const contributionTypes: readonly ContributionType[] = [
-	"api-endpoint",
-	"configuration",
-	"connector",
-	"data-seed",
-	"dimension",
-	"event",
-	"frontend-network",
-	"method",
-	"message-template",
-	"message-topic",
-	"metric",
-	"module",
-	"permission",
-	"statistic-policy",
-	"table",
-	"translation",
-];
 
 export interface RegistryMutationContext {
 	readonly requester: ContributionOwner;
@@ -92,6 +74,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				"Un gestionnaire ne peut être lié qu’à une contribution de méthode.",
 			);
 		}
+		this.dispatcher.validateHandler(handler);
 		const contribution = await this.register(definition, context);
 		this.dispatcher.bind(definition.identifier, handler);
 		return contribution;
@@ -109,11 +92,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 
 	async activate(key: string, context: RegistryMutationContext): Promise<StoredContribution> {
 		return this.changeState(key, "activate", "active", context, async (contribution) => {
-			if (
-				!["disabled", "discovered", "registered", "repairing", "updating"].includes(
-					contribution.state,
-				)
-			) {
+			if (!["disabled", "discovered", "registered"].includes(contribution.state)) {
 				throw invalidState(key, contribution.state, "active");
 			}
 			const contributions = await this.repository.list();
@@ -182,6 +161,22 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			await this.repository.set(updating);
 			const graph = new ContributionGraph(await this.repository.list());
 			graph.assertAcyclic();
+			if (existing.state === "active") {
+				const activationBlockers = graph.activationBlockers(key);
+				if (activationBlockers.length > 0) {
+					throw new RegistryError(
+						"registry.dependency_blocked",
+						`Mise à jour bloquée par ses dépendances : ${activationBlockers.join(", ")}.`,
+					);
+				}
+			}
+			const compatibilityBlockers = graph.versionCompatibilityBlockers(key);
+			if (compatibilityBlockers.length > 0) {
+				throw new RegistryError(
+					"registry.dependency_blocked",
+					`Mise à jour incompatible avec : ${compatibilityBlockers.join(", ")}.`,
+				);
+			}
 			const stored: StoredContribution = {
 				...updating,
 				state: existing.state === "active" ? "active" : "registered",
@@ -206,6 +201,9 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			"withdrawn",
 			context,
 			async (current) => {
+				if (!["active", "disabled", "discovered", "failed", "registered"].includes(current.state)) {
+					throw invalidState(key, current.state, "withdrawn");
+				}
 				if (current.owner.kind === "core") {
 					throw new RegistryError(
 						"registry.owner_denied",
@@ -249,7 +247,18 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				"La cause d’un échec de contribution est obligatoire.",
 			);
 		}
-		return this.changeState(key, "fail", "failed", context, async () => {}, reason.trim());
+		return this.changeState(
+			key,
+			"fail",
+			"failed",
+			context,
+			async (contribution) => {
+				if (contribution.state === "withdrawn") {
+					throw invalidState(key, contribution.state, "failed");
+				}
+			},
+			reason.trim(),
+		);
 	}
 
 	async reconcile(definitions: readonly ContributionDefinition[]): Promise<ReconciliationResult> {
@@ -258,21 +267,44 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		const activated: string[] = [];
 		const disabled: string[] = [];
 		const failed: Record<string, string> = {};
-		const desiredKeys = new Set(
-			definitions.map((definition) => contributionKey(definition.type, definition.identifier)),
-		);
+		const definitionCounts = new Map<string, number>();
+		for (const definition of definitions) {
+			const key = contributionKey(definition.type, definition.identifier);
+			definitionCounts.set(key, (definitionCounts.get(key) ?? 0) + 1);
+		}
+		const desiredKeys = new Set(definitionCounts.keys());
+		for (const [key, count] of definitionCounts) {
+			if (count > 1) failed[key] = "La contribution est déclarée plusieurs fois.";
+		}
 
 		for (const definition of definitions) {
 			const key = contributionKey(definition.type, definition.identifier);
+			if (failed[key]) continue;
 			const context = { requester: definition.owner };
 			try {
 				const existing = await this.repository.get(key);
 				if (!existing) {
 					await this.register(definition, context);
 					registered.push(key);
-				} else if (compareSemver(definition.version, existing.version) > 0) {
-					await this.update(definition, context);
-					updated.push(key);
+				} else {
+					const versionComparison = compareSemver(definition.version, existing.version);
+					if (versionComparison > 0) {
+						await this.update(definition, context);
+						updated.push(key);
+					} else if (versionComparison < 0) {
+						throw new RegistryError(
+							"registry.contract_invalid",
+							`La version ${definition.version} ne peut pas remplacer la version installée ${existing.version}.`,
+						);
+					} else if (stableJson(definitionFromStored(existing)) !== stableJson(definition)) {
+						throw new RegistryError(
+							"registry.collision",
+							"Une définition modifiée doit utiliser une nouvelle version.",
+						);
+					} else if (["discovered", "withdrawn"].includes(existing.state)) {
+						await this.register(definition, context);
+						registered.push(key);
+					}
 				}
 			} catch (error) {
 				failed[key] = errorMessage(error);
@@ -384,7 +416,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 					existing.version === definition.version &&
 					stableJson(definitionFromStored(existing)) === stableJson(definition)
 				) {
-					if (state === "registered" && existing.state === "discovered") {
+					if (state === "registered" && ["discovered", "withdrawn"].includes(existing.state)) {
 						return this.mutate(definition, action, context.actorId, async () => {
 							const registered = { ...existing, state, updatedAt: new Date() };
 							await this.repository.set(registered);

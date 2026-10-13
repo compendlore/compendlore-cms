@@ -29,6 +29,25 @@ export type ContributionType =
 	| "table"
 	| "translation";
 
+export const contributionTypes = [
+	"api-endpoint",
+	"configuration",
+	"connector",
+	"data-seed",
+	"dimension",
+	"event",
+	"frontend-network",
+	"message-template",
+	"message-topic",
+	"method",
+	"metric",
+	"module",
+	"permission",
+	"statistic-policy",
+	"table",
+	"translation",
+] as const satisfies readonly ContributionType[];
+
 export type ContributionState =
 	| "active"
 	| "disabled"
@@ -149,6 +168,8 @@ export interface ContributionInspection {
 	readonly contribution: StoredContribution;
 	readonly dependencies: readonly string[];
 	readonly dependents: readonly string[];
+	readonly activationBlockers: readonly string[];
+	readonly withdrawalBlockers: readonly string[];
 	readonly blockers: readonly string[];
 }
 
