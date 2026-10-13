@@ -16,6 +16,10 @@ until the release manager assigns a version and publication date.
 - Added the API gateway, real-time communication contracts, secure external connectors, and separate
   public and administrative frontend entry points on one development origin.
 - Added Docker deployment support and reproducible repository quality checks.
+- Added a private Encore object bucket, external secret references, and a PostgreSQL-backed task
+  queue for the Core infrastructure services.
+- Added cryptographic checksums and signatures to the durable Core event stream, with validation of
+  event ordering, idempotency, consumer cursors, retention, and deactivation.
 - Added the bilingual community code of conduct, governance policy, and trademark policy from the
   repository’s initial revision.
 
@@ -30,6 +34,12 @@ until the release manager assigns a version and publication date.
 
 ### Fixed
 
+- Connected the Encore runtime to the Core bootstrap, persistent instance identity, structured logs,
+  database supervision, bounded shutdown, and truthful readiness checks.
+- Added repeatable validation for the applied Core schema, its foundational constraints, indexes,
+  relationships, and transaction rollback.
+- Bound CSRF protection and login limits to authenticated sessions, made logout idempotent, and
+  completed security auditing for login, second-factor, and administrative access decisions.
 - Made API body limits compatible with Encore's compile-time requirements.
 - Separated contribution deployment history from the declarative schema journal.
 - Unified public and administrative development access without running a second Vite port.

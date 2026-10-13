@@ -104,6 +104,7 @@ export class AuthenticationService {
 		private readonly passwords: PasswordHasher,
 		private readonly installationTokens: InstallationTokenService,
 		private readonly accountSecurity: AccountSecurityService,
+		private readonly loginRateLimiter: RateLimiter,
 		private readonly sessionTtlMs: number,
 		private readonly adminSessionTtlMs: number,
 		private readonly now: () => Date = () => new Date(),
@@ -156,6 +157,26 @@ export class AuthenticationService {
 		context: { readonly address?: string } = {},
 	): Promise<AuthenticatedSession> {
 		const normalizedLogin = normalizeLogin(login);
+		const rateLimitSubjects = [
+			`login:${normalizedLogin}`,
+			...(context.address
+				? [`address:${this.accountSecurity.digestAddress(context.address)}`]
+				: []),
+		];
+		try {
+			for (const subject of rateLimitSubjects) {
+				this.loginRateLimiter.consume("authentication.login", subject);
+			}
+		} catch (error) {
+			await this.accountSecurity.recordAttempt({
+				kind: "login",
+				outcome: "blocked",
+				subject: normalizedLogin,
+				...(context.address ? { address: context.address } : {}),
+			});
+			await this.audit("security.login", "denied", correlationId);
+			throw error;
+		}
 		try {
 			await this.accountSecurity.assertAccessAllowed(undefined, context.address);
 		} catch (error) {
@@ -165,6 +186,7 @@ export class AuthenticationService {
 				subject: normalizedLogin,
 				...(context.address ? { address: context.address } : {}),
 			});
+			await this.audit("security.login", "denied", correlationId);
 			throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
 				cause: error,
 			});
@@ -180,6 +202,7 @@ export class AuthenticationService {
 					subject: normalizedLogin,
 					...(context.address ? { address: context.address } : {}),
 				});
+				await this.audit("security.login", "denied", correlationId, user.id);
 				throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
 					cause: error,
 				});
@@ -212,6 +235,8 @@ export class AuthenticationService {
 			subject: normalizedLogin,
 			...(context.address ? { address: context.address } : {}),
 		});
+		for (const subject of rateLimitSubjects)
+			this.loginRateLimiter.reset("authentication.login", subject);
 		await this.audit("security.login", "allowed", correlationId, user.id);
 		return { token, session, user };
 	}
@@ -232,9 +257,11 @@ export class AuthenticationService {
 	}
 
 	async revoke(token: string, correlationId: string): Promise<void> {
-		const authenticated = await this.authenticate(token);
-		await this.store.revokeSession(authenticated.session.id, this.now());
-		await this.audit("security.session.revoked", "allowed", correlationId, authenticated.user.id);
+		if (!token) return;
+		const session = await this.store.findSessionByTokenDigest(digest(token));
+		if (!session || session.revokedAt) return;
+		await this.store.revokeSession(session.id, this.now());
+		await this.audit("security.session.revoked", "allowed", correlationId, session.userId);
 	}
 
 	async requireCapability(token: string, capability: string): Promise<AuthenticatedSession> {
@@ -245,19 +272,44 @@ export class AuthenticationService {
 		return authenticated;
 	}
 
-	async requireAdministration(token: string): Promise<AuthenticatedSession> {
-		const authenticated = await this.requireCapability(
-			token,
-			CORE_CAPABILITIES.administrationAccess,
-		);
-		const verifiedAt = authenticated.session.secondFactorVerifiedAt?.getTime() ?? 0;
-		if (verifiedAt + this.adminSessionTtlMs <= this.now().getTime()) {
-			throw new CoreError(
-				"authentication.two_factor_required",
-				"Une validation 2FA récente est requise.",
+	async requireAdministration(
+		token: string,
+		correlationId = randomUUID(),
+	): Promise<AuthenticatedSession> {
+		let authenticated: AuthenticatedSession | undefined;
+		try {
+			authenticated = await this.authenticate(token);
+			if (
+				!(await this.store.hasCapability(
+					authenticated.user.id,
+					CORE_CAPABILITIES.administrationAccess,
+				))
+			) {
+				throw new CoreError("authorization.denied", "Cette capacité n'est pas accordée.");
+			}
+			const verifiedAt = authenticated.session.secondFactorVerifiedAt?.getTime() ?? 0;
+			if (verifiedAt + this.adminSessionTtlMs <= this.now().getTime()) {
+				throw new CoreError(
+					"authentication.two_factor_required",
+					"Une validation 2FA récente est requise.",
+				);
+			}
+			await this.audit(
+				"security.administration.access",
+				"allowed",
+				correlationId,
+				authenticated.user.id,
 			);
+			return authenticated;
+		} catch (error) {
+			await this.audit(
+				"security.administration.access",
+				"denied",
+				correlationId,
+				authenticated?.user.id,
+			);
+			throw error;
 		}
-		return authenticated;
 	}
 
 	private async audit(
@@ -284,9 +336,10 @@ export class TwoFactorService {
 		private readonly now: () => Date = () => new Date(),
 	) {}
 
-	async verify(session: CoreSession, code: string): Promise<void> {
+	async verify(session: CoreSession, code: string, correlationId = randomUUID()): Promise<void> {
 		const registration = await this.store.getTwoFactor(session.userId);
 		if (!registration) {
+			await this.audit("denied", correlationId, session.userId);
 			throw new CoreError(
 				"authentication.two_factor_required",
 				"Le second facteur n'est pas configuré.",
@@ -297,9 +350,27 @@ export class TwoFactorService {
 			? false
 			: await this.store.consumeRecoveryCode(session.userId, digest(code));
 		if (!accepted && !recoveryAccepted) {
+			await this.audit("denied", correlationId, session.userId);
 			throw new CoreError("authentication.invalid_credentials", "Code de sécurité invalide.");
 		}
 		await this.store.markSecondFactorVerified(session.id, this.now());
+		await this.audit("allowed", correlationId, session.userId);
+	}
+
+	private async audit(
+		outcome: AuditRecord["outcome"],
+		correlationId: string,
+		actorId: string,
+	): Promise<void> {
+		await this.store.appendAudit({
+			id: randomUUID(),
+			occurredAt: this.now(),
+			action: "security.two_factor.verify",
+			outcome,
+			actorId,
+			correlationId,
+			metadata: {},
+		});
 	}
 }
 
@@ -320,6 +391,24 @@ export class CsrfProtection {
 
 	private signature(sessionId: string, nonce: string): string {
 		return createHmac("sha256", this.secret).update(`${sessionId}.${nonce}`).digest("base64url");
+	}
+}
+
+export class SessionSecurityService {
+	constructor(
+		private readonly authentication: AuthenticationService,
+		private readonly csrf: CsrfProtection,
+	) {}
+
+	async issueCsrf(token: string): Promise<string> {
+		const authenticated = await this.authentication.authenticate(token);
+		return this.csrf.issue(authenticated.session.id);
+	}
+
+	async verifyCsrf(token: string, csrfToken: string): Promise<AuthenticatedSession> {
+		const authenticated = await this.authentication.authenticate(token);
+		this.csrf.verify(authenticated.session.id, csrfToken);
+		return authenticated;
 	}
 }
 
@@ -344,6 +433,10 @@ export class RateLimiter {
 			throw new CoreError("security.rate_limited", "Trop de tentatives.", { retryable: true });
 		}
 		current.count += 1;
+	}
+
+	reset(scope: string, subject: string): void {
+		this.windows.delete(`${scope}:${subject}`);
 	}
 }
 

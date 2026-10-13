@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { CoreError } from "./errors.js";
 import { validateCoreJsonValue } from "./settings.js";
 import type { CoreEvent, CoreEventConsumer, CoreJsonValue, CoreStore } from "./store.js";
@@ -26,10 +26,23 @@ export interface RegisterCoreEventConsumerInput {
 }
 
 export class CoreEventStream {
+	private readonly integrityKey: string;
+
 	constructor(
 		private readonly store: CoreStore,
+		integritySecret: string,
 		private readonly now: () => Date = () => new Date(),
-	) {}
+	) {
+		if (Buffer.byteLength(integritySecret, "utf8") < 32) {
+			throw new CoreError(
+				"configuration.invalid",
+				"La clé d’intégrité des événements est insuffisante.",
+			);
+		}
+		this.integrityKey = createHmac("sha256", integritySecret)
+			.update("compendlore.core.event-stream.v1")
+			.digest("hex");
+	}
 
 	async publish(input: PublishCoreEventInput): Promise<CoreEvent> {
 		const ownerIdentifier = validateIdentifier(input.ownerIdentifier, "propriétaire");
@@ -63,7 +76,7 @@ export class CoreEventStream {
 			throw new CoreError("configuration.invalid", "La charge utile doit être un objet JSON.");
 		}
 		validateCoreJsonValue(input.payload);
-		const serializedPayload = JSON.stringify(input.payload);
+		const serializedPayload = canonicalizeJson(input.payload);
 		if (Buffer.byteLength(serializedPayload, "utf8") > MAXIMUM_PAYLOAD_BYTES) {
 			throw new CoreError(
 				"configuration.invalid",
@@ -76,7 +89,7 @@ export class CoreEventStream {
 			throw new CoreError("configuration.invalid", "La clé d’idempotence est trop longue.");
 		}
 
-		const stored = await this.store.appendEvent({
+		const unsignedEvent = {
 			id: randomUUID(),
 			ownerIdentifier,
 			topic,
@@ -86,7 +99,14 @@ export class CoreEventStream {
 			receivedAt,
 			retentionUntil: new Date(input.retentionUntil),
 			...(idempotencyKey ? { idempotencyKey } : {}),
+		};
+		const payloadChecksum = checksum(serializedPayload);
+		const stored = await this.store.appendEvent({
+			...unsignedEvent,
+			payloadChecksum,
+			signature: signEvent(unsignedEvent, payloadChecksum, this.integrityKey),
 		});
+		this.assertIntegrity(stored);
 		if (
 			idempotencyKey &&
 			(stored.topic !== topic ||
@@ -123,12 +143,14 @@ export class CoreEventStream {
 		});
 	}
 
-	read(consumerIdentifier: string, batchSize = 100): Promise<readonly CoreEvent[]> {
+	async read(consumerIdentifier: string, batchSize = 100): Promise<readonly CoreEvent[]> {
 		validateIdentifier(consumerIdentifier, "consommateur");
 		if (!Number.isSafeInteger(batchSize) || batchSize <= 0 || batchSize > MAXIMUM_BATCH_SIZE) {
 			throw new CoreError("configuration.invalid", "La taille du lot d’événements est invalide.");
 		}
-		return this.store.readEventsForConsumer(consumerIdentifier, batchSize);
+		const events = await this.store.readEventsForConsumer(consumerIdentifier, batchSize);
+		for (const event of events) this.assertIntegrity(event);
+		return events;
 	}
 
 	acknowledge(consumerIdentifier: string, sequence: bigint): Promise<void> {
@@ -147,6 +169,74 @@ export class CoreEventStream {
 	purgeExpired(): Promise<number> {
 		return this.store.purgeExpiredEvents(this.now());
 	}
+
+	private assertIntegrity(event: CoreEvent): void {
+		const serializedPayload = canonicalizeJson(event.payload);
+		const expectedChecksum = checksum(serializedPayload);
+		const expectedSignature = signEvent(event, expectedChecksum, this.integrityKey);
+		if (
+			!safeEqual(event.payloadChecksum, expectedChecksum) ||
+			!safeEqual(event.signature, expectedSignature)
+		) {
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"L’intégrité du flux d’événements ne peut pas être garantie.",
+			);
+		}
+	}
+}
+
+type UnsignedEvent = Pick<
+	CoreEvent,
+	| "id"
+	| "ownerIdentifier"
+	| "topic"
+	| "schemaVersion"
+	| "occurredAt"
+	| "receivedAt"
+	| "retentionUntil"
+	| "idempotencyKey"
+>;
+
+function checksum(serializedPayload: string): string {
+	return createHash("sha256").update(serializedPayload).digest("hex");
+}
+
+function signEvent(event: UnsignedEvent, payloadChecksum: string, key: string): string {
+	return createHmac("sha256", key)
+		.update(
+			JSON.stringify([
+				event.id,
+				event.ownerIdentifier,
+				event.topic,
+				event.schemaVersion,
+				payloadChecksum,
+				event.occurredAt.toISOString(),
+				event.receivedAt.toISOString(),
+				event.retentionUntil.toISOString(),
+				event.idempotencyKey ?? null,
+			]),
+		)
+		.digest("hex");
+}
+
+function canonicalizeJson(value: CoreJsonValue): string {
+	if (value === null || typeof value === "boolean" || typeof value === "number") {
+		return JSON.stringify(value);
+	}
+	if (typeof value === "string") return JSON.stringify(value);
+	if (Array.isArray(value)) return `[${value.map(canonicalizeJson).join(",")}]`;
+	const object = value as Readonly<Record<string, CoreJsonValue>>;
+	return `{${Object.keys(object)
+		.sort()
+		.map((key) => `${JSON.stringify(key)}:${canonicalizeJson(object[key]!)}`)
+		.join(",")}}`;
+}
+
+function safeEqual(left: string, right: string): boolean {
+	const leftBuffer = Buffer.from(left);
+	const rightBuffer = Buffer.from(right);
+	return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function validateIdentifier(value: string, label: string): string {

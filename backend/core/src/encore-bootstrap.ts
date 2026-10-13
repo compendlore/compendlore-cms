@@ -7,6 +7,9 @@ import { SecureFileInstallationTokenPublisher } from "./installation.js";
 import { PostgresCoreStore } from "./postgres-store.js";
 import { AesGcmSecretCipher } from "./security.js";
 import type { SecretProvider } from "./services.js";
+import { OutboundGateway } from "./services.js";
+import { encoreObjectStorage } from "../object-storage.js";
+import { PostgresTaskQueue } from "../task-queue.js";
 
 export async function bootstrapEncoreCore(input: {
 	readonly config: CoreConfig;
@@ -15,6 +18,7 @@ export async function bootstrapEncoreCore(input: {
 	readonly services?: readonly ManagedCoreService[];
 }): Promise<CoreApplication & { readonly database: CoreDatabase }> {
 	const dataEncryptionSecret = await input.secrets.resolve(input.config.dataEncryptionSecretRef);
+	const objectStorage = encoreObjectStorage;
 	const application = await bootstrapCore({
 		config: input.config,
 		store: new PostgresCoreStore(coreDatabase, new AesGcmSecretCipher(dataEncryptionSecret)),
@@ -23,7 +27,10 @@ export async function bootstrapEncoreCore(input: {
 		installationTokenPublisher: new SecureFileInstallationTokenPublisher(
 			input.config.installationTokenFile,
 		),
-		...(input.services ? { services: input.services } : {}),
+		services: [coreDatabase, objectStorage, ...(input.services ?? [])],
+		objectStorage,
+		tasks: new PostgresTaskQueue(coreDatabase),
+		outbound: new OutboundGateway(input.config.outboundHosts),
 	});
 	return { ...application, database: coreDatabase };
 }

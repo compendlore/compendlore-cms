@@ -72,6 +72,8 @@ export interface CoreEvent {
 	readonly topic: string;
 	readonly schemaVersion: number;
 	readonly payload: Readonly<Record<string, CoreJsonValue>>;
+	readonly payloadChecksum: string;
+	readonly signature: string;
 	readonly occurredAt: Date;
 	readonly receivedAt: Date;
 	readonly retentionUntil: Date;

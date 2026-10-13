@@ -7,6 +7,8 @@ export interface CoreConfig {
 	readonly publicOrigin: URL;
 	readonly sessionTtlMs: number;
 	readonly adminSessionTtlMs: number;
+	readonly loginAttemptLimit: number;
+	readonly loginAttemptWindowMs: number;
 	readonly shutdownTimeoutMs: number;
 	readonly installationTokenTtlMs: number;
 	readonly installationTokenFile: string;
@@ -75,6 +77,16 @@ export function loadCoreConfig(environment: NodeJS.ProcessEnv): CoreConfig {
 			environment.CORE_ADMIN_SESSION_TTL_MS,
 			900_000,
 			"CORE_ADMIN_SESSION_TTL_MS",
+		),
+		loginAttemptLimit: positiveInteger(
+			environment.CORE_LOGIN_ATTEMPT_LIMIT,
+			10,
+			"CORE_LOGIN_ATTEMPT_LIMIT",
+		),
+		loginAttemptWindowMs: positiveInteger(
+			environment.CORE_LOGIN_ATTEMPT_WINDOW_MS,
+			60_000,
+			"CORE_LOGIN_ATTEMPT_WINDOW_MS",
 		),
 		shutdownTimeoutMs: positiveInteger(
 			environment.CORE_SHUTDOWN_TIMEOUT_MS,

@@ -21,6 +21,7 @@ export class CoreRuntime {
 	constructor(
 		private readonly services: readonly ManagedCoreService[],
 		private readonly logger: CoreLogger,
+		private readonly shutdownTimeoutMs = 10_000,
 	) {}
 
 	get state(): RuntimeState {
@@ -73,12 +74,31 @@ export class CoreRuntime {
 	private async stopActive(): Promise<void> {
 		for (const service of this.active.reverse()) {
 			try {
-				await service.stop();
-			} catch {
-				this.logger.write("error", "core.service_stop_failed", { service: service.name });
+				await withTimeout(service.stop(), this.shutdownTimeoutMs);
+			} catch (error) {
+				this.logger.write("error", "core.service_stop_failed", {
+					service: service.name,
+					reason: error instanceof ShutdownTimeoutError ? "timeout" : "failure",
+				});
 			}
 		}
 		this.active = [];
+	}
+}
+
+class ShutdownTimeoutError extends Error {}
+
+async function withTimeout(operation: Promise<void>, timeoutMs: number): Promise<void> {
+	let timeout: NodeJS.Timeout | undefined;
+	try {
+		await Promise.race([
+			operation,
+			new Promise<never>((_, reject) => {
+				timeout = setTimeout(() => reject(new ShutdownTimeoutError()), timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timeout) clearTimeout(timeout);
 	}
 }
 

@@ -138,6 +138,8 @@ interface EventRow {
 	topic: string;
 	schema_version: number;
 	payload: Record<string, CoreJsonValue>;
+	payload_checksum: string | null;
+	signature: string | null;
 	occurred_at: Date;
 	received_at: Date;
 	retention_until: Date;
@@ -1326,6 +1328,8 @@ export class PostgresCoreStore implements CoreStore {
 				topic,
 				schema_version,
 				payload,
+				payload_checksum,
+				signature,
 				occurred_at,
 				received_at,
 				retention_until,
@@ -1337,6 +1341,8 @@ export class PostgresCoreStore implements CoreStore {
 				${event.topic},
 				${event.schemaVersion},
 				${JSON.stringify(event.payload)},
+				${event.payloadChecksum},
+				${event.signature},
 				${event.occurredAt},
 				${event.receivedAt},
 				${event.retentionUntil},
@@ -1353,6 +1359,8 @@ export class PostgresCoreStore implements CoreStore {
 				topic,
 				schema_version,
 				payload,
+				payload_checksum,
+				signature,
 				occurred_at,
 				received_at,
 				retention_until,
@@ -1444,6 +1452,8 @@ export class PostgresCoreStore implements CoreStore {
 				e.topic,
 				e.schema_version,
 				e.payload,
+				e.payload_checksum,
+				e.signature,
 				e.occurred_at,
 				e.received_at,
 				e.retention_until,
@@ -1548,6 +1558,12 @@ export class PostgresCoreStore implements CoreStore {
 }
 
 function mapEvent(row: EventRow): CoreEvent {
+	if (!row.payload_checksum || !row.signature) {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"L’événement persistant ne possède pas de preuve d’intégrité.",
+		);
+	}
 	return {
 		id: row.id,
 		sequence: BigInt(row.sequence),
@@ -1555,6 +1571,8 @@ function mapEvent(row: EventRow): CoreEvent {
 		topic: row.topic,
 		schemaVersion: row.schema_version,
 		payload: row.payload,
+		payloadChecksum: row.payload_checksum,
+		signature: row.signature,
 		occurredAt: row.occurred_at,
 		receivedAt: row.received_at,
 		retentionUntil: row.retention_until,
