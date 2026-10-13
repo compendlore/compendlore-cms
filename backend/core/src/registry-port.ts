@@ -18,12 +18,18 @@ export interface RegistryMutationCandidate {
 export interface RegistryCorePort {
 	transaction<Result>(operation: () => Promise<Result>): Promise<Result>;
 	validateMutation(candidate: RegistryMutationCandidate): Promise<void>;
-	hasCapability(actorId: string, capability: string): Promise<boolean>;
+	authorizeMethodInvocation(request: RegistryMethodAuthorizationRequest): Promise<boolean>;
 	recordMutation(
 		candidate: RegistryMutationCandidate,
 		outcome: AuditRecord["outcome"],
 		actorId?: string,
 	): Promise<void>;
+}
+
+export interface RegistryMethodAuthorizationRequest {
+	readonly contributionKey: string;
+	readonly actorId?: string;
+	readonly requiredCapability?: string;
 }
 
 export interface RegisteredMethodInvocation {
@@ -69,8 +75,12 @@ export class CoreRegistryPort implements RegistryCorePort {
 		}
 	}
 
-	hasCapability(actorId: string, capability: string): Promise<boolean> {
-		return this.store.hasCapability(actorId, capability);
+	async authorizeMethodInvocation(request: RegistryMethodAuthorizationRequest): Promise<boolean> {
+		validateRegistryIdentifier(request.contributionKey, "contributionKey");
+		if (!request.requiredCapability) return true;
+		validateRegistryIdentifier(request.requiredCapability, "requiredCapability");
+		if (!request.actorId) return false;
+		return this.store.hasCapability(request.actorId, request.requiredCapability);
 	}
 
 	async recordMutation(

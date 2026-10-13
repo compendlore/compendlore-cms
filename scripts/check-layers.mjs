@@ -10,6 +10,13 @@ function layerFor(file) {
 	return policy.layers.find((layer) => layer.paths.some((prefix) => normalized.startsWith(prefix)));
 }
 
+function normalizedModulePath(file) {
+	return path
+		.relative(process.cwd(), file)
+		.replaceAll("\\", "/")
+		.replace(/\.(?:js|jsx|mjs|ts|tsx)$/, "");
+}
+
 async function walk(directory) {
 	for (const entry of await readdir(directory, { withFileTypes: true })) {
 		if (ignored.has(entry.name)) continue;
@@ -34,6 +41,14 @@ async function inspect(file) {
 		) {
 			violations.push(
 				path.relative(process.cwd(), file) + " ne peut pas importer " + targetLayer.name,
+			);
+		} else if (
+			targetLayer &&
+			targetLayer.name !== sourceLayer.name &&
+			!(targetLayer.publicEntrypoints ?? []).includes(normalizedModulePath(target))
+		) {
+			violations.push(
+				`${path.relative(process.cwd(), file)} doit importer ${targetLayer.name} depuis un point d’entrée public`,
 			);
 		}
 	}

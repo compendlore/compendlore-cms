@@ -3,16 +3,19 @@
 		{
 			"name": "security-kernel",
 			"paths": ["backend/security-kernel/"],
+			"publicEntrypoints": ["backend/security-kernel/src/index"],
 			"mayImport": []
 		},
 		{
 			"name": "core",
 			"paths": ["backend/core/"],
+			"publicEntrypoints": ["backend/core/src/index"],
 			"mayImport": ["security-kernel"]
 		},
 		{
 			"name": "registry",
 			"paths": ["backend/cms-registry/"],
+			"publicEntrypoints": ["backend/cms-registry/src/index"],
 			"mayImport": ["core"]
 		},
 		{
