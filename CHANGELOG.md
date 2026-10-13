@@ -53,6 +53,8 @@ until the release manager assigns a version and publication date.
 - Unified public and administrative development access without running a second Vite port.
 - Kept frontend and backend origins strictly separate: `/api/*` is requested directly from Encore
   and is never exposed by the frontend server.
+- Composed the native site catalog during Encore API startup instead of leaving its endpoint
+  permanently unavailable.
 - Overrode the vulnerable transitive KaTeX version.
 
 ### Release notes

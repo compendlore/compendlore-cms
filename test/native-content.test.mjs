@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { NativeCatalogAccessError, NativeCatalogApi } from "../backend/build/api/src/index.js";
+import {
+	createNativeCatalogRuntime,
+	NativeCatalogAccessError,
+	NativeCatalogApi,
+} from "../backend/build/api/src/index.js";
 import { NativeContentRegistry } from "../backend/build/cms-registry/src/index.js";
 import { nativeSiteContribution } from "../backend/build/site/src/native-contributions.js";
 
@@ -118,6 +122,33 @@ test("résout la navigation publique et protège le catalogue administratif", ()
 	assert.equal(document.pages[0].route, "/admin");
 	assert.equal(document.navigation.brand.target, "/");
 	assert.equal(document.contributions[0].contributionKey, "native.site");
+});
+
+test("compose le catalogue natif utilisé par le runtime Encore", async () => {
+	const runtime = createNativeCatalogRuntime();
+	const identity = await runtime.identities.resolve({});
+	const document = runtime.catalog.read({
+		surface: "site",
+		requestedLocales: ["fr-FR"],
+		defaultLocale: "en",
+		identity,
+	});
+	assert.equal(identity.authenticated, false);
+	assert.equal(document.navigation.brand.identifier, "core.home");
+	assert.equal(
+		document.pages.some((page) => page.identifier === "core.home"),
+		true,
+	);
+	assert.throws(
+		() =>
+			runtime.catalog.read({
+				surface: "administration",
+				requestedLocales: ["fr-FR"],
+				defaultLocale: "en",
+				identity,
+			}),
+		NativeCatalogAccessError,
+	);
 });
 
 test("applique héritage, révisions, workflow et requêtes bornées aux entités", () => {

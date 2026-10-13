@@ -1,10 +1,15 @@
 import { api } from "encore.dev/api";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+	configureNativeCatalogApi,
 	NativeCatalogAccessError,
 	NativeCatalogUnavailableError,
 	readConfiguredNativeCatalog,
 } from "./native-catalog.js";
+import { createNativeCatalogRuntime } from "./native-catalog-runtime.js";
+
+const nativeCatalogRuntime = createNativeCatalogRuntime();
+configureNativeCatalogApi(nativeCatalogRuntime.catalog, nativeCatalogRuntime.identities);
 
 export const siteNativeCatalog = api.raw(
 	{
