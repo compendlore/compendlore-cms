@@ -203,6 +203,8 @@ test("la migration de phase 9 ne contient que des catalogues structurels Core", 
 	]) {
 		assert.match(migration, new RegExp(`CREATE TABLE core\\.${table}\\b`));
 	}
+	assert.match(migration, /\boffset_value NUMERIC NOT NULL DEFAULT 0\b/i);
+	assert.doesNotMatch(migration, /\boffset NUMERIC\b/i);
 	assert.doesNotMatch(migration, /INSERT INTO core\.(?:entity_types|navigation_items|pages)/i);
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
 });
