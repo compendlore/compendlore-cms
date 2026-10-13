@@ -19,14 +19,20 @@ export type ContributionType =
 	| "dimension"
 	| "event"
 	| "frontend-network"
+	| "entitlement"
 	| "method"
 	| "message-template"
 	| "message-topic"
 	| "metric"
 	| "module"
+	| "page"
 	| "permission"
+	| "popup"
+	| "product"
+	| "route"
 	| "statistic-policy"
 	| "table"
+	| "theme"
 	| "translation";
 
 export const contributionTypes = [
@@ -37,14 +43,20 @@ export const contributionTypes = [
 	"dimension",
 	"event",
 	"frontend-network",
+	"entitlement",
 	"message-template",
 	"message-topic",
 	"method",
 	"metric",
 	"module",
+	"page",
 	"permission",
+	"popup",
+	"product",
+	"route",
 	"statistic-policy",
 	"table",
+	"theme",
 	"translation",
 ] as const satisfies readonly ContributionType[];
 

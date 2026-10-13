@@ -20,6 +20,8 @@ until the release manager assigns a version and publication date.
   queue for the Core infrastructure services.
 - Added cryptographic checksums and signatures to the durable Core event stream, with validation of
   event ordering, idempotency, consumer cursors, retention, and deactivation.
+- Added prepared Registry contribution types for themes, routes, pages, popups, products, and
+  commercial entitlements without exposing their future private implementations.
 - Added the bilingual community code of conduct, governance policy, and trademark policy from the
   repository’s initial revision.
 - Connected Security Kernel decisions to the durable Core security-attempt store without retaining
@@ -31,6 +33,8 @@ until the release manager assigns a version and publication date.
 
 - Centralized the contribution-type inventory so validation and catalog projection cannot drift
   apart as new Registry types are introduced.
+- Hardened runtime validation for statistics and communication contracts, including every enum,
+  localized purpose, delivery constraint, acknowledgement rule, and payload field definition.
 - Extracted the public addon SDK contracts into the standalone `compendlore-addon-sdk` repository.
 - Navigation is sourced from dedicated registries instead of hard-coded frontend entries.
 - Internal architecture, planning, and audit documents are maintained in the workspace documentation
