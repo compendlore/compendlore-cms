@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createPublicKey, verify } from "node:crypto";
 import test from "node:test";
 import { URL } from "node:url";
 import {
@@ -21,6 +22,10 @@ import {
 	RateLimiter,
 	securityDigest,
 } from "../backend/build/core/src/index.js";
+import {
+	InMemoryInstancePrivateKeyStore,
+	InstanceIdentityCryptography,
+} from "../backend/build/security-kernel/src/index.js";
 
 const config = loadCoreConfig({
 	CORE_ENVIRONMENT: "test",
@@ -141,6 +146,52 @@ test("initialise une instance vide et protège l'administration par 2FA", async 
 			["security.administration.access", "allowed"],
 		],
 	);
+	await application.runtime.stop();
+});
+
+test("persiste les décisions du Security Kernel sans données sensibles", async () => {
+	const store = new InMemoryCoreStore();
+	const application = await bootstrapCore({
+		config,
+		store,
+		secrets,
+		logger: new MemoryLogger(),
+		installationTokenPublisher: {
+			async publish() {},
+			async clear() {},
+		},
+	});
+	const decision = await application.securityBoundary.secureInput({
+		operation: "core.settings.update",
+		value: { displayName: "Compendlore" },
+		context: {
+			correlationId: "security-boundary-test",
+			surface: "administration",
+			subject: {
+				id: "sensitive-user-identifier",
+				kind: "user",
+				capabilities: new Set(["core.settings.update"]),
+			},
+			resource: { kind: "settings", identifier: "private-instance-settings" },
+		},
+		policy: {
+			identifier: "core.settings.update",
+			version: "1.0.0",
+			allowAnonymous: false,
+			requiredCapabilities: ["core.settings.update"],
+		},
+	});
+	assert.equal(decision.status, "allowed");
+	application.securityBoundary.assertEvidence(decision.secured.evidence, {
+		operation: "core.settings.update",
+		resource: { kind: "settings", identifier: "private-instance-settings" },
+	});
+	const audit = store.securityAttemptRecords.at(-1);
+	assert.equal(audit.kind, "security-kernel.allowed");
+	assert.equal(audit.outcome, "allowed");
+	assert.notEqual(audit.subjectDigest, "sensitive-user-identifier");
+	assert.equal(JSON.stringify(audit.metadata).includes("private-instance-settings"), false);
+	assert.equal(audit.metadata.correlationId, "security-boundary-test");
 	await application.runtime.stop();
 });
 
@@ -296,6 +347,79 @@ test("conserve l’identifiant unique de l’instance entre les démarrages", as
 
 	assert.match(first, /^[0-9a-f-]{36}$/u);
 	assert.equal(second, first);
+});
+
+test("conserve l’identité Ed25519 et prouve la possession de la clé privée", async () => {
+	const store = new InMemoryCoreStore();
+	const privateKeys = new InMemoryInstancePrivateKeyStore();
+	const identityCryptography = new InstanceIdentityCryptography(privateKeys);
+	const application = await bootstrapCore({
+		config,
+		store,
+		secrets,
+		logger: new MemoryLogger(),
+		installationTokenPublisher: {
+			async publish() {},
+			async clear() {},
+		},
+		instanceIdentityCryptography: identityCryptography,
+		now: () => new Date("2026-10-13T12:00:00.000Z"),
+	});
+	const identity = application.instanceIdentity.current();
+	const persisted = await store.getInstanceIdentity(application.instanceId);
+	assert.equal(persisted?.identifier, identity.identifier);
+	assert.equal(persisted?.algorithm, "Ed25519");
+	assert.equal("privateKey" in persisted, false);
+
+	const proof = await application.instanceIdentity.signChallenge({
+		audience: "https://hub.compendlore.example",
+		nonce: "unique_challenge_123456789",
+		expiresAt: new Date("2026-10-13T12:01:00.000Z"),
+	});
+	const publicKey = createPublicKey({
+		key: Buffer.from(proof.publicKey, "base64url"),
+		format: "der",
+		type: "spki",
+	});
+	assert.equal(
+		verify(
+			null,
+			Buffer.from(proof.payload, "base64url"),
+			publicKey,
+			Buffer.from(proof.signature, "base64url"),
+		),
+		true,
+	);
+
+	const restarted = await bootstrapCore({
+		config,
+		store,
+		secrets,
+		logger: new MemoryLogger(),
+		installationTokenPublisher: {
+			async publish() {},
+			async clear() {},
+		},
+		instanceIdentityCryptography: new InstanceIdentityCryptography(privateKeys),
+	});
+	assert.equal(restarted.instanceIdentity.current().identifier, identity.identifier);
+
+	await assert.rejects(
+		bootstrapCore({
+			config,
+			store,
+			secrets,
+			logger: new MemoryLogger(),
+			installationTokenPublisher: {
+				async publish() {},
+				async clear() {},
+			},
+			instanceIdentityCryptography: new InstanceIdentityCryptography(
+				new InMemoryInstancePrivateKeyStore(),
+			),
+		}),
+		(error) => error instanceof CoreError && error.code === "lifecycle.invalid_state",
+	);
 });
 
 test("borne l’arrêt d’un service qui ne répond plus", async () => {

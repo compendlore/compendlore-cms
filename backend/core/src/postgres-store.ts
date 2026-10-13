@@ -12,6 +12,7 @@ import type {
 	CoreEventConsumer,
 	CoreInstallationState,
 	CoreInstallationToken,
+	CoreInstanceIdentity,
 	CoreIpBan,
 	CoreJsonValue,
 	CorePasskey,
@@ -33,6 +34,20 @@ import { CoreError } from "./errors.js";
 interface InstanceRow {
 	[key: string]: unknown;
 	id: string;
+}
+
+interface InstanceIdentityRow {
+	[key: string]: unknown;
+	instance_id: string;
+	identity_identifier: string;
+	algorithm: "Ed25519";
+	format_version: 1;
+	public_key: Uint8Array;
+	public_key_fingerprint: string;
+	key_reference: string;
+	assurance_level: CoreInstanceIdentity["assurance"];
+	created_at: Date;
+	updated_at: Date;
 }
 
 interface CountRow {
@@ -217,6 +232,77 @@ export class PostgresCoreStore implements CoreStore {
 			VALUES (${instanceId})
 			ON CONFLICT DO NOTHING
 		`);
+	}
+
+	async getInstanceIdentity(instanceId: string): Promise<CoreInstanceIdentity | undefined> {
+		const result = await this.query<InstanceIdentityRow>(/* pgsql */ sql`
+			SELECT
+				instance_id,
+				identity_identifier,
+				algorithm,
+				format_version,
+				public_key,
+				public_key_fingerprint,
+				key_reference,
+				assurance_level,
+				created_at,
+				updated_at
+			FROM
+				core.instance_identities
+			WHERE
+				instance_id = ${instanceId}
+		`);
+		const row = result.rows[0];
+		return row ? mapInstanceIdentity(row) : undefined;
+	}
+
+	async setInstanceIdentity(identity: CoreInstanceIdentity): Promise<void> {
+		const result = await this.query<InstanceIdentityRow>(/* pgsql */ sql`
+			INSERT INTO core.instance_identities (
+				instance_id,
+				identity_identifier,
+				algorithm,
+				format_version,
+				public_key,
+				public_key_fingerprint,
+				key_reference,
+				assurance_level,
+				created_at,
+				updated_at
+			)
+			VALUES (
+				${identity.instanceId},
+				${identity.identifier},
+				${identity.algorithm},
+				${identity.formatVersion},
+				${Buffer.from(identity.publicKey)},
+				${identity.publicKeyFingerprint},
+				${identity.keyReference},
+				${identity.assurance},
+				${identity.createdAt},
+				${identity.updatedAt}
+			)
+			ON CONFLICT (instance_id) DO NOTHING
+			RETURNING
+				instance_id,
+				identity_identifier,
+				algorithm,
+				format_version,
+				public_key,
+				public_key_fingerprint,
+				key_reference,
+				assurance_level,
+				created_at,
+				updated_at
+		`);
+		if (result.rowCount === 1) return;
+		const existing = await this.getInstanceIdentity(identity.instanceId);
+		if (!existing || !sameInstanceIdentity(existing, identity)) {
+			throw new CoreError(
+				"lifecycle.invalid_state",
+				"L’identité cryptographique de l’instance ne peut pas être remplacée implicitement.",
+			);
+		}
 	}
 
 	async countUsers(): Promise<number> {
@@ -1578,6 +1664,33 @@ function mapEvent(row: EventRow): CoreEvent {
 		retentionUntil: row.retention_until,
 		...(row.idempotency_key ? { idempotencyKey: row.idempotency_key } : {}),
 	};
+}
+
+function mapInstanceIdentity(row: InstanceIdentityRow): CoreInstanceIdentity {
+	return {
+		instanceId: row.instance_id,
+		identifier: row.identity_identifier,
+		algorithm: row.algorithm,
+		formatVersion: row.format_version,
+		publicKey: Uint8Array.from(row.public_key),
+		publicKeyFingerprint: row.public_key_fingerprint,
+		keyReference: row.key_reference,
+		assurance: row.assurance_level,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+function sameInstanceIdentity(first: CoreInstanceIdentity, second: CoreInstanceIdentity): boolean {
+	return (
+		first.identifier === second.identifier &&
+		first.algorithm === second.algorithm &&
+		first.formatVersion === second.formatVersion &&
+		first.publicKeyFingerprint === second.publicKeyFingerprint &&
+		first.keyReference === second.keyReference &&
+		first.assurance === second.assurance &&
+		Buffer.from(first.publicKey).equals(Buffer.from(second.publicKey))
+	);
 }
 
 function mapEventConsumer(row: EventConsumerRow): CoreEventConsumer {

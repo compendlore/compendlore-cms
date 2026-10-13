@@ -199,10 +199,25 @@ export interface CoreInstallationState {
 	readonly updatedAt: Date;
 }
 
+export interface CoreInstanceIdentity {
+	readonly instanceId: string;
+	readonly identifier: string;
+	readonly algorithm: "Ed25519";
+	readonly formatVersion: 1;
+	readonly publicKey: Uint8Array;
+	readonly publicKeyFingerprint: string;
+	readonly keyReference: string;
+	readonly assurance: "hardware" | "protected-file" | "system";
+	readonly createdAt: Date;
+	readonly updatedAt: Date;
+}
+
 export interface CoreStore {
 	transaction<Result>(operation: () => Promise<Result>): Promise<Result>;
 	getInstanceId(): Promise<string | undefined>;
 	setInstanceId(instanceId: string): Promise<void>;
+	getInstanceIdentity(instanceId: string): Promise<CoreInstanceIdentity | undefined>;
+	setInstanceIdentity(identity: CoreInstanceIdentity): Promise<void>;
 	countUsers(): Promise<number>;
 	getInstallationToken(instanceId: string): Promise<CoreInstallationToken | undefined>;
 	setInstallationToken(token: CoreInstallationToken): Promise<void>;
@@ -278,6 +293,7 @@ export interface CoreStore {
 
 interface Snapshot {
 	instanceId: string | undefined;
+	instanceIdentities: Map<string, CoreInstanceIdentity>;
 	installationTokens: Map<string, CoreInstallationToken>;
 	emailAddresses: Map<string, CoreEmailAddress>;
 	securityTokens: Map<string, CoreSecurityToken>;
@@ -308,6 +324,7 @@ interface Snapshot {
 export class InMemoryCoreStore implements CoreStore {
 	private state: Snapshot = {
 		instanceId: undefined,
+		instanceIdentities: new Map(),
 		installationTokens: new Map(),
 		emailAddresses: new Map(),
 		securityTokens: new Map(),
@@ -351,6 +368,22 @@ export class InMemoryCoreStore implements CoreStore {
 
 	async setInstanceId(instanceId: string): Promise<void> {
 		this.state.instanceId = instanceId;
+	}
+
+	async getInstanceIdentity(instanceId: string): Promise<CoreInstanceIdentity | undefined> {
+		const identity = this.state.instanceIdentities.get(instanceId);
+		return identity ? cloneInstanceIdentity(identity) : undefined;
+	}
+
+	async setInstanceIdentity(identity: CoreInstanceIdentity): Promise<void> {
+		const existing = this.state.instanceIdentities.get(identity.instanceId);
+		if (existing && !sameInstanceIdentity(existing, identity)) {
+			throw new CoreError(
+				"lifecycle.invalid_state",
+				"L’identité cryptographique de l’instance ne peut pas être remplacée implicitement.",
+			);
+		}
+		this.state.instanceIdentities.set(identity.instanceId, cloneInstanceIdentity(identity));
 	}
 
 	async countUsers(): Promise<number> {
@@ -880,6 +913,12 @@ export class InMemoryCoreStore implements CoreStore {
 	private clone(): Snapshot {
 		return {
 			instanceId: this.state.instanceId,
+			instanceIdentities: new Map(
+				[...this.state.instanceIdentities].map(([key, value]) => [
+					key,
+					cloneInstanceIdentity(value),
+				]),
+			),
 			installationTokens: new Map(this.state.installationTokens),
 			emailAddresses: new Map(this.state.emailAddresses),
 			securityTokens: new Map(this.state.securityTokens),
@@ -957,4 +996,20 @@ function clonePasskey(passkey: CorePasskey): CorePasskey {
 		publicKey: passkey.publicKey.slice(),
 		transports: [...passkey.transports],
 	};
+}
+
+function cloneInstanceIdentity(identity: CoreInstanceIdentity): CoreInstanceIdentity {
+	return { ...identity, publicKey: identity.publicKey.slice() };
+}
+
+function sameInstanceIdentity(first: CoreInstanceIdentity, second: CoreInstanceIdentity): boolean {
+	return (
+		first.identifier === second.identifier &&
+		first.algorithm === second.algorithm &&
+		first.formatVersion === second.formatVersion &&
+		first.publicKeyFingerprint === second.publicKeyFingerprint &&
+		first.keyReference === second.keyReference &&
+		first.assurance === second.assurance &&
+		Buffer.from(first.publicKey).equals(Buffer.from(second.publicKey))
+	);
 }

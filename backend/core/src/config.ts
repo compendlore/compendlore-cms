@@ -12,6 +12,7 @@ export interface CoreConfig {
 	readonly shutdownTimeoutMs: number;
 	readonly installationTokenTtlMs: number;
 	readonly installationTokenFile: string;
+	readonly instancePrivateKeyFile: string;
 	readonly passwordPepperSecretRef: string;
 	readonly csrfSecretRef: string;
 	readonly dataEncryptionSecretRef: string;
@@ -100,6 +101,9 @@ export function loadCoreConfig(environment: NodeJS.ProcessEnv): CoreConfig {
 		),
 		installationTokenFile:
 			environment.CORE_INSTALLATION_TOKEN_FILE?.trim() || "runtime/installation-token",
+		instancePrivateKeyFile:
+			environment.CORE_INSTANCE_PRIVATE_KEY_FILE?.trim() ||
+			"runtime/instance-identity/private-key.pem",
 		passwordPepperSecretRef,
 		csrfSecretRef,
 		dataEncryptionSecretRef,

@@ -155,6 +155,20 @@ test("la preuve d’intégrité des événements reste additive", async () => {
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
 });
 
+test("l’identité d’instance ne persiste que sa partie publique dans le Core", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/008_core_instance_identity.up.sql", import.meta.url),
+		"utf8",
+	);
+
+	assert.match(migration, /CREATE TABLE core\.instance_identities\b/);
+	assert.match(migration, /public_key BYTEA NOT NULL/);
+	assert.match(migration, /algorithm = 'Ed25519'/);
+	assert.match(migration, /assurance_level IN \('hardware', 'protected-file', 'system'\)/);
+	assert.doesNotMatch(migration, /private_key|private_key_pem/i);
+	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
+});
+
 test("les services fondamentaux possèdent leurs ressources Encore et persistantes", async () => {
 	const [foundationMigration, objectStorage, runtime, taskQueue] = await Promise.all([
 		readFile(

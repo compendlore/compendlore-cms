@@ -12,6 +12,7 @@ export * from "./errors.js";
 export * from "./event-stream.js";
 export * from "./frontend-network.js";
 export * from "./installation.js";
+export * from "./instance-identity.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";
 export * from "./object-storage.js";
