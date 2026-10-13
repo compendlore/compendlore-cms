@@ -775,6 +775,135 @@ test("enregistre des contrats statistiques déclaratifs et refuse les données s
 	);
 });
 
+test("valide intégralement les contrats statistiques partagés", async () => {
+	const { registry } = await createRegistry();
+	const validEvent = {
+		schemaVersion: "1.0.0",
+		purpose: { en: "Measure page usage." },
+		sensitivity: "internal",
+		retentionDays: 30,
+		timestampSource: "core",
+		fields: { duration: { type: "duration", required: true } },
+	};
+	const invalidEvents = [
+		{ ...validEvent, purpose: {} },
+		{ ...validEvent, sensitivity: "secret" },
+		{ ...validEvent, timestampSource: "browser" },
+		{ ...validEvent, fields: { duration: { type: "decimal", required: true } } },
+		{ ...validEvent, fields: { duration: { type: "duration", required: "yes" } } },
+	];
+
+	for (const [index, statisticEvent] of invalidEvents.entries()) {
+		await assert.rejects(
+			registry.register(
+				contribution("event", `statistics.invalid-event-${index}`, { statisticEvent }),
+				{ requester: nativeOwner },
+			),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
+
+	for (const [index, [type, contract]] of [
+		[
+			"dimension",
+			{
+				statisticDimension: {
+					valueType: "uuid",
+					purpose: { en: "Invalid dimension." },
+					sensitivity: "internal",
+					cardinalityLimit: 10,
+				},
+			},
+		],
+		[
+			"dimension",
+			{
+				statisticDimension: {
+					valueType: "string",
+					purpose: { en: "Invalid dimension." },
+					sensitivity: "secret",
+					cardinalityLimit: 10,
+				},
+			},
+		],
+		[
+			"dimension",
+			{
+				statisticDimension: {
+					valueType: "string",
+					purpose: { en: "Invalid dimension." },
+					sensitivity: "internal",
+					cardinalityLimit: 10,
+					pseudonymized: "yes",
+				},
+			},
+		],
+		[
+			"metric",
+			{
+				statisticMetric: {
+					kind: "total",
+					eventIdentifier: "statistics.event",
+					unit: "view",
+					aggregation: "count",
+					granularities: ["day"],
+					timezone: "UTC",
+				},
+			},
+		],
+		...[
+			{ unit: "not a unit" },
+			{ aggregation: "median" },
+			{ granularities: ["minute"] },
+			{ timezone: "Europe/Paris" },
+		].map((override) => [
+			"metric",
+			{
+				statisticMetric: {
+					kind: "counter",
+					eventIdentifier: "statistics.event",
+					unit: "view",
+					aggregation: "count",
+					granularities: ["day"],
+					timezone: "UTC",
+					...override,
+				},
+			},
+		]),
+		[
+			"statistic-policy",
+			{
+				statisticPolicy: {
+					purposeIdentifier: "statistics.usage",
+					consent: "implicit",
+					enabledByDefault: "yes",
+					sampleRate: 1,
+					retentionDays: 30,
+				},
+			},
+		],
+		[
+			"statistic-policy",
+			{
+				statisticPolicy: {
+					purposeIdentifier: "statistics.usage",
+					consent: "opt-in",
+					enabledByDefault: "yes",
+					sampleRate: 1,
+					retentionDays: 30,
+				},
+			},
+		],
+	].entries()) {
+		await assert.rejects(
+			registry.register(contribution(type, `statistics.invalid-contract-${index}`, contract), {
+				requester: nativeOwner,
+			}),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
+});
+
 test("enregistre les sujets de message et borne les envois directs avec accusé", async () => {
 	const { registry } = await createRegistry();
 	const topic = contribution("message-topic", "editorial.save-confirmation", {
@@ -817,4 +946,76 @@ test("enregistre les sujets de message et borne les envois directs avec accusé"
 		),
 		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
 	);
+});
+
+test("valide intégralement les contrats de communication partagés", async () => {
+	const { registry } = await createRegistry();
+	const validTopic = {
+		schemaVersion: "1.0.0",
+		purpose: { en: "Notify one or more editors." },
+		sensitivity: "internal",
+		profile: "direct-acknowledged",
+		durability: "durable",
+		acknowledgement: "processed",
+		priority: "normal",
+		audiences: ["group", "user", "user-list"],
+		presentations: ["toast"],
+		channels: ["realtime"],
+		payload: { resource: { type: "string", required: true, maximumLength: 160 } },
+		idempotent: true,
+		maximumRecipients: 100,
+		retentionDays: 30,
+	};
+	await registry.register(
+		contribution("message-topic", "communication.valid-group-direct", {
+			messageTopic: validTopic,
+		}),
+		{ requester: nativeOwner },
+	);
+
+	const invalidTopics = [
+		{ ...validTopic, sensitivity: "secret" },
+		{ ...validTopic, durability: "forever" },
+		{ ...validTopic, acknowledgement: "unknown" },
+		{ ...validTopic, priority: "urgent" },
+		{ ...validTopic, audiences: ["everyone"] },
+		{ ...validTopic, presentations: ["dialog"] },
+		{ ...validTopic, channels: ["email"] },
+		{ ...validTopic, payload: { resource: { type: "uuid", required: true } } },
+		{ ...validTopic, profile: "simple", acknowledgement: "read" },
+		{ ...validTopic, acknowledgement: "none" },
+	];
+	for (const [index, messageTopic] of invalidTopics.entries()) {
+		await assert.rejects(
+			registry.register(
+				contribution("message-topic", `communication.invalid-topic-${index}`, { messageTopic }),
+				{ requester: nativeOwner },
+			),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
+});
+
+test("prépare les contributions transversales sans exposer leur implémentation privée", async () => {
+	const { registry } = await createRegistry();
+	const preparedTypes = ["entitlement", "page", "popup", "product", "route", "theme"];
+	for (const type of preparedTypes) {
+		await registry.register(
+			contribution(type, `prepared.${type}`, {
+				requiredCapabilities: [`${type}.read`],
+				dependencies: [{ contributionKey: "module.prepared-owner", optional: true }],
+				withdrawalPolicy: "preserve-data",
+			}),
+			{ requester: nativeOwner },
+		);
+	}
+
+	const catalog = await registry.catalog();
+	for (const type of preparedTypes) {
+		assert.deepEqual(
+			catalog.byType[type].map((item) => item.identifier),
+			[`prepared.${type}`],
+		);
+		assert.equal(catalog.byType[type][0].payload, undefined);
+	}
 });

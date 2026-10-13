@@ -7,7 +7,25 @@ import {
 	type ContributionOwner,
 } from "./contracts.js";
 import { RegistryError } from "./errors.js";
-import { messageDeliveryProfiles } from "./messaging.js";
+import {
+	messageAcknowledgements,
+	messageAudienceKinds,
+	messageChannels,
+	messageDeliveryProfiles,
+	messageDurabilities,
+	messagePayloadFieldTypes,
+	messagePresentations,
+	messagePriorities,
+} from "./messaging.js";
+import {
+	statisticAggregations,
+	statisticConsentPolicies,
+	statisticDimensionValueTypes,
+	statisticGranularities,
+	statisticMetricKinds,
+	statisticSensitivities,
+	statisticValueTypes,
+} from "./statistics.js";
 
 const identifierPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const localePattern = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -135,14 +153,36 @@ function validateStatisticContract(definition: ContributionDefinition): void {
 	assertExclusiveContract(definition, "statistic-policy", "statisticPolicy");
 
 	if (definition.statisticEvent) {
+		if (!isRecord(definition.statisticEvent)) {
+			throw invalid("Le contrat d’événement statistique doit être un objet.");
+		}
 		if (!semverPattern.test(definition.statisticEvent.schemaVersion)) {
 			throw invalid("La version du schéma statistique doit respecter SemVer.");
 		}
 		validateLocalizedText(definition.statisticEvent.purpose);
+		assertKnownValue(
+			definition.statisticEvent.sensitivity,
+			statisticSensitivities,
+			"sensibilité statistique",
+		);
 		validateRetention(definition.statisticEvent.retentionDays);
+		assertKnownValue(
+			definition.statisticEvent.timestampSource,
+			["core", "producer"],
+			"source temporelle statistique",
+		);
+		if (!isRecord(definition.statisticEvent.fields)) {
+			throw invalid("Les champs d’un événement statistique doivent former un objet.");
+		}
 		for (const [fieldName, field] of Object.entries(definition.statisticEvent.fields)) {
+			if (!isRecord(field)) throw invalid("Un champ statistique doit être un objet.");
 			validateIdentifier(fieldName, "champ statistique");
 			assertNonSensitiveStatisticName(fieldName);
+			assertKnownValue(field.type, statisticValueTypes, "type de valeur statistique");
+			if (typeof field.required !== "boolean") {
+				throw invalid("Le caractère obligatoire d’un champ statistique est invalide.");
+			}
+			assertOptionalArray(field.allowedValues, "valeurs statistiques autorisées");
 			if (
 				field.maximumLength !== undefined &&
 				(field.type !== "string" ||
@@ -161,8 +201,31 @@ function validateStatisticContract(definition: ContributionDefinition): void {
 	}
 
 	if (definition.statisticDimension) {
+		if (!isRecord(definition.statisticDimension)) {
+			throw invalid("Le contrat de dimension statistique doit être un objet.");
+		}
 		assertNonSensitiveStatisticName(definition.identifier);
 		validateLocalizedText(definition.statisticDimension.purpose);
+		assertKnownValue(
+			definition.statisticDimension.valueType,
+			statisticDimensionValueTypes,
+			"type de dimension statistique",
+		);
+		assertKnownValue(
+			definition.statisticDimension.sensitivity,
+			statisticSensitivities,
+			"sensibilité statistique",
+		);
+		if (
+			definition.statisticDimension.pseudonymized !== undefined &&
+			typeof definition.statisticDimension.pseudonymized !== "boolean"
+		) {
+			throw invalid("La pseudonymisation d’une dimension statistique est invalide.");
+		}
+		assertOptionalArray(
+			definition.statisticDimension.allowedValues,
+			"valeurs de dimension autorisées",
+		);
 		if (
 			!Number.isSafeInteger(definition.statisticDimension.cardinalityLimit) ||
 			definition.statisticDimension.cardinalityLimit < 1 ||
@@ -177,17 +240,36 @@ function validateStatisticContract(definition: ContributionDefinition): void {
 	}
 
 	if (definition.statisticMetric) {
+		if (!isRecord(definition.statisticMetric)) {
+			throw invalid("Le contrat de métrique statistique doit être un objet.");
+		}
+		assertKnownValue(definition.statisticMetric.kind, statisticMetricKinds, "type de métrique");
 		validateIdentifier(definition.statisticMetric.eventIdentifier, "événement statistique");
 		if (definition.statisticMetric.field) {
 			validateIdentifier(definition.statisticMetric.field, "champ de métrique");
 		}
-		if (!/^[A-Za-z][A-Za-z0-9._%/-]{0,31}$/.test(definition.statisticMetric.unit)) {
+		if (
+			typeof definition.statisticMetric.unit !== "string" ||
+			!/^[A-Za-z][A-Za-z0-9._%/-]{0,31}$/.test(definition.statisticMetric.unit)
+		) {
 			throw invalid("L’unité d’une métrique statistique est invalide.");
 		}
+		assertKnownValue(
+			definition.statisticMetric.aggregation,
+			statisticAggregations,
+			"agrégation statistique",
+		);
+		assertRequiredArray(definition.statisticMetric.granularities, "granularités statistiques");
 		if (definition.statisticMetric.granularities.length === 0) {
 			throw invalid("Une métrique doit déclarer au moins une granularité.");
 		}
+		for (const granularity of definition.statisticMetric.granularities) {
+			assertKnownValue(granularity, statisticGranularities, "granularité statistique");
+		}
 		validateUniqueValues(definition.statisticMetric.granularities, "granularité statistique");
+		if (definition.statisticMetric.timezone !== "UTC") {
+			throw invalid("Le fuseau d’une métrique statistique doit être UTC.");
+		}
 		validateUniqueIdentifiers(
 			definition.statisticMetric.dimensionIdentifiers,
 			"dimension statistique",
@@ -195,7 +277,18 @@ function validateStatisticContract(definition: ContributionDefinition): void {
 	}
 
 	if (definition.statisticPolicy) {
+		if (!isRecord(definition.statisticPolicy)) {
+			throw invalid("Le contrat de politique statistique doit être un objet.");
+		}
 		validateIdentifier(definition.statisticPolicy.purposeIdentifier, "finalité statistique");
+		assertKnownValue(
+			definition.statisticPolicy.consent,
+			statisticConsentPolicies,
+			"politique de consentement statistique",
+		);
+		if (typeof definition.statisticPolicy.enabledByDefault !== "boolean") {
+			throw invalid("L’état par défaut d’une politique statistique est invalide.");
+		}
 		validateRetention(definition.statisticPolicy.retentionDays);
 		if (
 			!Number.isFinite(definition.statisticPolicy.sampleRate) ||
@@ -220,14 +313,20 @@ function validateMessagingContract(definition: ContributionDefinition): void {
 	assertExclusiveContract(definition, "message-template", "messageTemplate");
 	if (definition.messageTopic) {
 		const topic = definition.messageTopic;
+		if (!isRecord(topic)) throw invalid("Le contrat d’un sujet de message doit être un objet.");
 		if (!semverPattern.test(topic.schemaVersion)) {
 			throw invalid("La version du schéma de message doit respecter SemVer.");
 		}
 		validateLocalizedText(topic.purpose);
-		if (!messageDeliveryProfiles.includes(topic.profile)) {
-			throw invalid("Le profil de livraison du message est inconnu.");
-		}
+		assertKnownValue(topic.profile, messageDeliveryProfiles, "profil de livraison du message");
+		assertKnownValue(topic.sensitivity, statisticSensitivities, "sensibilité du message");
+		assertKnownValue(topic.durability, messageDurabilities, "durabilité du message");
+		assertKnownValue(topic.acknowledgement, messageAcknowledgements, "accusé du message");
+		assertKnownValue(topic.priority, messagePriorities, "priorité du message");
 		validateRetention(topic.retentionDays);
+		assertRequiredArray(topic.audiences, "audiences de message");
+		assertRequiredArray(topic.presentations, "présentations de message");
+		assertRequiredArray(topic.channels, "canaux de message");
 		validateUniqueValues(topic.audiences, "audience de message");
 		validateUniqueValues(topic.presentations, "présentation de message");
 		validateUniqueValues(topic.channels, "canal de message");
@@ -237,6 +336,24 @@ function validateMessagingContract(definition: ContributionDefinition): void {
 			topic.channels.length === 0
 		) {
 			throw invalid("Un sujet de message doit déclarer audience, présentation et canal.");
+		}
+		for (const audience of topic.audiences) {
+			assertKnownValue(audience, messageAudienceKinds, "audience de message");
+		}
+		for (const presentation of topic.presentations) {
+			assertKnownValue(presentation, messagePresentations, "présentation de message");
+		}
+		for (const channel of topic.channels) {
+			assertKnownValue(channel, messageChannels, "canal de message");
+		}
+		if (topic.profile === "simple" && topic.acknowledgement !== "none") {
+			throw invalid("Un envoi simple ne peut pas demander d’accusé de réception.");
+		}
+		if (topic.profile === "direct-acknowledged" && topic.acknowledgement === "none") {
+			throw invalid("Un envoi direct doit demander un accusé de réception.");
+		}
+		if (typeof topic.idempotent !== "boolean") {
+			throw invalid("La politique d’idempotence du message est invalide.");
 		}
 		if (
 			topic.maximumRecipients !== undefined &&
@@ -262,9 +379,18 @@ function validateMessagingContract(definition: ContributionDefinition): void {
 		) {
 			throw invalid("L’expiration du message est invalide.");
 		}
+		if (!isRecord(topic.payload)) throw invalid("La charge d’un message doit être un objet.");
 		for (const [fieldName, field] of Object.entries(topic.payload)) {
+			if (!isRecord(field)) throw invalid("Un champ de message doit être un objet.");
 			validateIdentifier(fieldName, "champ de message");
 			assertNonSensitiveMessageName(fieldName);
+			assertKnownValue(field.type, messagePayloadFieldTypes, "type de champ de message");
+			if (typeof field.required !== "boolean") {
+				throw invalid("Le caractère obligatoire d’un champ de message est invalide.");
+			}
+			if (field.sensitive !== undefined && typeof field.sensitive !== "boolean") {
+				throw invalid("La sensibilité d’un champ de message est invalide.");
+			}
 			if (
 				field.maximumLength !== undefined &&
 				(field.type !== "string" ||
@@ -278,6 +404,7 @@ function validateMessagingContract(definition: ContributionDefinition): void {
 	}
 	if (definition.messageTemplate) {
 		const template = definition.messageTemplate;
+		if (!isRecord(template)) throw invalid("Le contrat d’un modèle de message doit être un objet.");
 		validateIdentifier(template.topicIdentifier, "sujet de modèle de message");
 		if (!semverPattern.test(template.templateVersion)) {
 			throw invalid("La version du modèle de message doit respecter SemVer.");
@@ -345,6 +472,10 @@ function validateUniqueValues(values: readonly unknown[], label: string): void {
 	if (new Set(values).size !== values.length) {
 		throw invalid(`Une ${label} est déclarée plusieurs fois.`);
 	}
+}
+
+function assertKnownValue(value: unknown, values: readonly unknown[], label: string): void {
+	if (!values.includes(value)) throw invalid(`La valeur de ${label} est inconnue.`);
 }
 
 function assertNonSensitiveStatisticName(name: string): void {
@@ -822,9 +953,18 @@ function assertOptionalArray(value: unknown, label: string): void {
 	}
 }
 
+function assertRequiredArray(value: unknown, label: string): asserts value is readonly unknown[] {
+	if (!Array.isArray(value)) {
+		throw invalid(`La déclaration ${label} doit être une liste.`);
+	}
+}
+
 function validateLocalizedText(value: Readonly<Record<string, string>>): void {
+	if (!isRecord(value) || Object.keys(value).length === 0) {
+		throw invalid("Un texte localisé doit contenir au moins une langue.");
+	}
 	for (const [locale, text] of Object.entries(value)) {
-		if (!localePattern.test(locale) || !text.trim()) {
+		if (!localePattern.test(locale) || typeof text !== "string" || !text.trim()) {
 			throw invalid("Un texte localisé est invalide.");
 		}
 	}
