@@ -268,7 +268,7 @@ CREATE TABLE core.measurement_units (
 	contribution_key TEXT NOT NULL,
 	symbol TEXT NOT NULL,
 	scale NUMERIC NOT NULL,
-	offset NUMERIC NOT NULL DEFAULT 0,
+	offset_value NUMERIC NOT NULL DEFAULT 0,
 	version TEXT NOT NULL,
 	active BOOLEAN NOT NULL DEFAULT true,
 	CONSTRAINT measurement_units_scale_check CHECK (scale <> 0)
