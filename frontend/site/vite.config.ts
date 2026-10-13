@@ -12,7 +12,7 @@ const administrationEntryPath = normalizePath(
 );
 const administrationSourcePrefix = `/@fs/${normalizePath(
 	resolve(currentDirectory, "../administration"),
-)}/`;
+).replace(/^\/+/, "")}/`;
 
 export default defineConfig({
 	envDir: resolve(currentDirectory, "../.."),
