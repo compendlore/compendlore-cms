@@ -64,5 +64,5 @@ if (allIssues.length > 0) {
 	console.error(allIssues.join("\n"));
 	process.exitCode = 1;
 } else {
-	console.log(`Markdownlint : ${files.length} fichier(s), aucune erreur.`);
+	console.log(`Markdownlint: ${files.length} file(s), no errors.`);
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
 	ApplicationShell,
+	AdministrationSessionGuard,
 	Button,
 	Card,
 	DateTimePicker,
@@ -10,6 +11,7 @@ import {
 	MainNavigationRegistry,
 	Modal,
 	ModuleOutlet,
+	NotificationHub,
 	NavigationResolver,
 	Notice,
 	PageHeader,
@@ -19,8 +21,14 @@ import {
 	Switch,
 	Table,
 	Tabs,
+	hasAdministrationShellAccess,
+	parseAdministrationSessionSnapshot,
+	type NativeNotification,
+	type AdministrationSessionSnapshot,
 	type FrontendModuleProps,
+	type FrontendSessionContext,
 } from "@compendlore/ui";
+import { administrationMessage } from "./messages.js";
 
 const registry = new FrontendModuleRegistry();
 registry.register({
@@ -44,7 +52,6 @@ registry.register({
 	requiredCapability: "core.administration.access",
 	component: InterfacePage,
 });
-const capabilities = new Set<string>(["core.administration.access"]);
 const administrationSidebars = new SidebarRegistry();
 const administrationSidebarElements = new SidebarElementRegistry();
 const administrationNavigation = new NavigationResolver(
@@ -90,6 +97,7 @@ administrationSidebarElements.register("core.administration", {
 });
 
 export function App() {
+	const [sessionSnapshot, setSessionSnapshot] = useState(readAdministrationSession);
 	const [path, setPath] = useState(() =>
 		window.location.pathname === "/admin/" ? "/admin" : window.location.pathname,
 	);
@@ -98,6 +106,48 @@ export function App() {
 		window.addEventListener("popstate", update);
 		return () => window.removeEventListener("popstate", update);
 	}, []);
+	useEffect(() => {
+		const guard = new AdministrationSessionGuard({
+			purgeSensitiveState() {
+				sessionStorage.removeItem("compendlore.administration.preloaded-data");
+			},
+			leaveAdministration() {
+				window.location.replace("/");
+			},
+		});
+		const revalidate = () => {
+			const current = readAdministrationSession();
+			setSessionSnapshot(current);
+			guard.revalidate(current);
+		};
+		const onVisibilityChange = () => {
+			if (document.visibilityState === "visible") revalidate();
+		};
+		const onSecurityMessage = (event: MessageEvent<unknown>) => {
+			if (event.data === "revoked") {
+				guard.revoke();
+				return;
+			}
+			revalidate();
+		};
+		window.addEventListener("focus", revalidate);
+		window.addEventListener("pageshow", revalidate);
+		window.addEventListener("compendlore:administration-session-invalidated", revalidate);
+		document.addEventListener("visibilitychange", onVisibilityChange);
+		const channel = new BroadcastChannel("compendlore-administration-security");
+		channel.addEventListener("message", onSecurityMessage);
+		guard.revalidate(sessionSnapshot);
+		return () => {
+			window.removeEventListener("focus", revalidate);
+			window.removeEventListener("pageshow", revalidate);
+			window.removeEventListener("compendlore:administration-session-invalidated", revalidate);
+			document.removeEventListener("visibilitychange", onVisibilityChange);
+			channel.close();
+		};
+	}, [sessionSnapshot]);
+	if (!hasAdministrationShellAccess(sessionSnapshot)) return null;
+	const administrationSession = toFrontendSession(sessionSnapshot);
+	const capabilities = administrationSession.capabilities;
 	const navigate = (href: string) => {
 		if (!/^\/admin(?:\/|$)/.test(href)) {
 			window.location.assign(href);
@@ -111,6 +161,7 @@ export function App() {
 		path,
 		capabilities,
 	);
+	const locale = navigator.language || "fr-FR";
 	return (
 		<ApplicationShell
 			administration
@@ -127,17 +178,158 @@ export function App() {
 				</>
 			}
 		>
+			{isShellSecurityPreview() ? <ShellSecurityPreview locale={locale} /> : null}
 			<ModuleOutlet
 				contribution={registry.resolveRoute(path, capabilities)}
-				context={{ capabilities, locale: navigator.language || "fr-FR" }}
+				context={{
+					capabilities,
+					locale,
+					session: administrationSession,
+				}}
 				fallback={
-					<Notice tone="danger" title="Page administrative indisponible">
-						Cette route n’est pas enregistrée ou votre session ne possède plus la capacité requise.
+					<Notice
+						tone="danger"
+						title={administrationMessage(locale, "administration.notFound.title")}
+					>
+						{administrationMessage(locale, "administration.notFound.description")}
 					</Notice>
 				}
 			/>
 		</ApplicationShell>
 	);
+}
+
+const previewNotifications = [
+	{
+		id: "security-banner",
+		title: "Session administrative active",
+		message: "Les changements d’autorisation sont vérifiés à chaque reprise du shell.",
+		presentation: "banner",
+		tone: "information",
+		occurredAt: "2026-10-14T18:00:00.000Z",
+		read: false,
+		displayDurationMs: 10_000,
+	},
+	{
+		id: "delivery-inbox",
+		title: "Centre de notifications disponible",
+		message: "Cette entrée reste consultable même lorsque le temps réel est indisponible.",
+		presentation: "inbox",
+		tone: "success",
+		occurredAt: "2026-10-14T17:00:00.000Z",
+		read: true,
+	},
+] as const;
+
+function ShellSecurityPreview({ locale }: { readonly locale: string }) {
+	useEffect(() => {
+		window.compendloreNotifications = Object.freeze({
+			push(notification: unknown) {
+				window.dispatchEvent(new CustomEvent("compendlore:notification", { detail: notification }));
+			},
+		});
+		return () => {
+			delete window.compendloreNotifications;
+		};
+	}, []);
+	return (
+		<section aria-label="Validation de la sécurité du shell">
+			<PageHeader
+				eyebrow="Validation locale"
+				title="Sécurité et notifications"
+				description="Cette surface de développement vérifie la révocation et les présentations natives."
+				actions={
+					<Button tone="danger" onClick={simulateSessionRevocation}>
+						Simuler la révocation
+					</Button>
+				}
+			/>
+			<NotificationHub
+				initialNotifications={previewNotifications satisfies readonly NativeNotification[]}
+				locale={locale}
+				maxVisible={5}
+				labels={{
+					button: "Notifications non lues",
+					panel: "Centre de notifications",
+					markAllRead: "Tout marquer comme lu",
+					close: "Marquer comme lue",
+				}}
+			/>
+		</section>
+	);
+}
+
+function simulateSessionRevocation() {
+	window.__COMPENDLORE_ADMINISTRATION_SESSION__ = {
+		...developmentAdministrationSession,
+		status: "revoked",
+		revision: "development.revoked",
+	};
+	window.dispatchEvent(new Event("compendlore:administration-session-invalidated"));
+	const channel = new BroadcastChannel("compendlore-administration-security");
+	channel.postMessage("revoked");
+	channel.close();
+}
+
+function readAdministrationSession(): AdministrationSessionSnapshot {
+	const payload = window.__COMPENDLORE_ADMINISTRATION_SESSION__;
+	if (payload !== undefined) {
+		try {
+			return parseAdministrationSessionSnapshot(payload);
+		} catch {
+			return revokedAdministrationSession;
+		}
+	}
+	return import.meta.env.DEV && isAdministrationPreview()
+		? parseAdministrationSessionSnapshot(developmentAdministrationSession)
+		: revokedAdministrationSession;
+}
+
+function toFrontendSession(session: AdministrationSessionSnapshot): FrontendSessionContext {
+	return Object.freeze({
+		status: "authenticated",
+		subjectIdentifier: session.subjectIdentifier,
+		roles: session.roles,
+		capabilities: session.capabilities,
+	});
+}
+
+function isAdministrationPreview(): boolean {
+	return new URLSearchParams(window.location.search).get("administration-preview") === "1";
+}
+
+function isShellSecurityPreview(): boolean {
+	return (
+		import.meta.env.DEV && new URLSearchParams(window.location.search).get("shell-security") === "1"
+	);
+}
+
+const developmentAdministrationSession = Object.freeze({
+	status: "authenticated",
+	subjectIdentifier: "development-administration-session",
+	roles: Object.freeze(["administrator"]),
+	capabilities: Object.freeze(["core.administration.access"]),
+	secondFactorVerified: true,
+	secondFactorExpiresAt: Date.now() + 60 * 60 * 1000,
+	revision: "development.active",
+});
+
+const revokedAdministrationSession: AdministrationSessionSnapshot = Object.freeze({
+	status: "revoked",
+	subjectIdentifier: "revoked-administration-session",
+	roles: Object.freeze([]),
+	capabilities: new Set<string>(),
+	secondFactorVerified: false,
+	revision: "revoked",
+});
+
+declare global {
+	interface Window {
+		__COMPENDLORE_ADMINISTRATION_SESSION__?: unknown;
+		compendloreNotifications?: {
+			readonly push: (notification: unknown) => void;
+		};
+	}
 }
 
 function DashboardPage(_props: FrontendModuleProps) {

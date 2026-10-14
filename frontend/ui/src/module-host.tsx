@@ -1,11 +1,19 @@
-import type { ComponentType, ReactNode } from "react";
+import { Component, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { Notice } from "./primitives.js";
 
 export type FrontendContributionKind = "action" | "component" | "form" | "menu" | "page" | "route";
 
+export interface FrontendSessionContext {
+	readonly status: "anonymous" | "authenticated";
+	readonly subjectIdentifier?: string;
+	readonly roles: readonly string[];
+	readonly capabilities: ReadonlySet<string>;
+}
+
 export interface FrontendModuleContext {
 	readonly capabilities: ReadonlySet<string>;
 	readonly locale: string;
+	readonly session: FrontendSessionContext;
 }
 
 export interface FrontendModuleProps {
@@ -22,16 +30,36 @@ export interface FrontendContribution {
 	readonly component: ComponentType<FrontendModuleProps>;
 }
 
+const moduleMessages = {
+	fr: {
+		title: "Module indisponible",
+		description:
+			"Le contenu demandé n’est pas installé ou vous ne disposez pas de la capacité nécessaire. Vos données locales sont conservées.",
+	},
+	en: {
+		title: "Module unavailable",
+		description:
+			"The requested content is not installed or you do not have the required capability. Your local data has been preserved.",
+	},
+} as const;
+
 export class FrontendModuleRegistry {
 	private readonly contributions = new Map<string, FrontendContribution>();
 
 	register(contribution: FrontendContribution): void {
 		if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(contribution.identifier))
-			throw new Error("L’identifiant frontend est invalide.");
+			throw new Error("The frontend contribution identifier is invalid.");
 		if (this.contributions.has(contribution.identifier))
-			throw new Error(`La contribution ${contribution.identifier} existe déjà.`);
+			throw new Error(`The frontend contribution ${contribution.identifier} already exists.`);
 		if (contribution.kind === "route" && (!contribution.path || !contribution.path.startsWith("/")))
-			throw new Error("Une route frontend doit déclarer un chemin absolu.");
+			throw new Error("A frontend route must declare an absolute path.");
+		if (
+			contribution.kind === "route" &&
+			[...this.contributions.values()].some(
+				(candidate) => candidate.kind === "route" && candidate.path === contribution.path,
+			)
+		)
+			throw new Error(`The frontend route ${contribution.path} already exists.`);
 		this.contributions.set(contribution.identifier, Object.freeze({ ...contribution }));
 	}
 
@@ -66,28 +94,71 @@ function hasCapability(capabilities: ReadonlySet<string>, required?: string): bo
 	return !required || capabilities.has("*") || capabilities.has(required);
 }
 
+interface ModuleErrorBoundaryProps {
+	readonly children: ReactNode;
+	readonly fallback: ReactNode;
+	readonly identifier: string;
+	readonly onError?: ((identifier: string, error: unknown) => void) | undefined;
+}
+
+class ModuleErrorBoundary extends Component<ModuleErrorBoundaryProps, { failed: boolean }> {
+	override state = { failed: false };
+
+	static getDerivedStateFromError(): { failed: boolean } {
+		return { failed: true };
+	}
+
+	override componentDidCatch(error: unknown, _errorInfo: ErrorInfo): void {
+		if (this.props.onError) {
+			this.props.onError(this.props.identifier, error);
+			return;
+		}
+		console.error("Frontend module rendering failed.", {
+			identifier: this.props.identifier,
+			errorName: error instanceof Error ? error.name : "UnknownError",
+		});
+	}
+
+	override render(): ReactNode {
+		return this.state.failed ? this.props.fallback : this.props.children;
+	}
+}
+
+function defaultFallback(locale: string): ReactNode {
+	const messages = locale.toLowerCase().startsWith("fr") ? moduleMessages.fr : moduleMessages.en;
+	return (
+		<Notice tone="warning" title={messages.title}>
+			{messages.description}
+		</Notice>
+	);
+}
+
 export function ModuleOutlet({
 	contribution,
 	context,
 	state,
 	onStateChange,
 	fallback,
+	onError,
 }: {
 	readonly contribution?: FrontendContribution | undefined;
 	readonly context: FrontendModuleContext;
 	readonly state?: unknown | undefined;
 	readonly onStateChange?: ((state: unknown) => void) | undefined;
 	readonly fallback?: ReactNode | undefined;
+	readonly onError?: ((identifier: string, error: unknown) => void) | undefined;
 }) {
-	if (!contribution)
-		return (
-			fallback ?? (
-				<Notice tone="warning" title="Module indisponible">
-					Le contenu demandé n’est pas installé ou vous ne disposez pas de la capacité nécessaire.
-					Vos données locales sont conservées.
-				</Notice>
-			)
-		);
+	const unavailable = fallback ?? defaultFallback(context.locale);
+	if (!contribution) return unavailable;
 	const Component = contribution.component;
-	return <Component context={context} state={state} onStateChange={onStateChange} />;
+	return (
+		<ModuleErrorBoundary
+			key={contribution.identifier}
+			identifier={contribution.identifier}
+			fallback={unavailable}
+			onError={onError}
+		>
+			<Component context={context} state={state} onStateChange={onStateChange} />
+		</ModuleErrorBoundary>
+	);
 }

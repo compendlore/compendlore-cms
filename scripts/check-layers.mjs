@@ -59,5 +59,5 @@ if (violations.length > 0) {
 	console.error(violations.join("\n"));
 	process.exitCode = 1;
 } else {
-	console.log("Frontières d'architecture respectées.");
+	console.log("Architecture boundaries are respected.");
 }

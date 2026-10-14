@@ -41,7 +41,12 @@ export interface SidebarLinkDefinition extends SidebarElementBase {
 	readonly href: string;
 }
 
-export type SidebarElementDefinition = SidebarCategoryDefinition | SidebarLinkDefinition;
+export interface SidebarSeparatorDefinition extends SidebarElementBase {
+	readonly kind: "separator";
+}
+
+export type SidebarElementDefinition =
+	SidebarCategoryDefinition | SidebarLinkDefinition | SidebarSeparatorDefinition;
 
 export interface NavigationLinkView {
 	readonly id: string;
@@ -67,7 +72,13 @@ export interface SidebarLinkView extends NavigationLinkView {
 	readonly children: readonly SidebarElementView[];
 }
 
-export type SidebarElementView = SidebarCategoryView | SidebarLinkView;
+export interface SidebarSeparatorView {
+	readonly kind: "separator";
+	readonly id: string;
+	readonly label: string;
+}
+
+export type SidebarElementView = SidebarCategoryView | SidebarLinkView | SidebarSeparatorView;
 
 export interface SidebarView {
 	readonly id: string;
@@ -89,12 +100,13 @@ export class MainNavigationRegistry {
 	register(link: MainNavigationLinkDefinition): void {
 		validateIdentifier(link.identifier);
 		validateHref(link.href);
-		if (this.links.has(link.identifier)) throw new Error(`Le lien ${link.identifier} existe déjà.`);
+		if (this.links.has(link.identifier))
+			throw new Error(`The navigation link ${link.identifier} already exists.`);
 		if (link.systemRole === "home") {
 			if (link.href !== "/" || link.visibility !== "hidden")
-				throw new Error("Le lien système d’accueil doit cibler / et rester masqué.");
+				throw new Error("The system home link must target / and remain hidden.");
 			if ([...this.links.values()].some((candidate) => candidate.systemRole === "home"))
-				throw new Error("Le lien système d’accueil existe déjà.");
+				throw new Error("The system home link already exists.");
 		}
 		this.links.set(link.identifier, Object.freeze({ ...link }));
 	}
@@ -112,7 +124,7 @@ export class SidebarRegistry {
 	register(sidebar: SidebarDefinition): void {
 		validateIdentifier(sidebar.identifier);
 		if (this.sidebars.has(sidebar.identifier))
-			throw new Error(`Le menu latéral ${sidebar.identifier} existe déjà.`);
+			throw new Error(`The sidebar ${sidebar.identifier} already exists.`);
 		this.sidebars.set(sidebar.identifier, Object.freeze({ ...sidebar }));
 	}
 
@@ -132,7 +144,7 @@ export class SidebarElementRegistry {
 		if (element.kind === "link") validateHref(element.href);
 		const sidebarElements = this.elements.get(sidebarIdentifier) ?? new Map();
 		if (sidebarElements.has(element.identifier))
-			throw new Error(`L’élément ${element.identifier} existe déjà dans ce menu latéral.`);
+			throw new Error(`The element ${element.identifier} already exists in this sidebar.`);
 		sidebarElements.set(element.identifier, Object.freeze({ ...element }));
 		this.elements.set(sidebarIdentifier, sidebarElements);
 	}
@@ -170,9 +182,11 @@ export class NavigationResolver {
 	): SidebarView | undefined {
 		const sidebar = this.sidebars.resolve(identifier, capabilities);
 		if (!sidebar) return undefined;
-		const definitions = this.sidebarElements
-			.list(identifier)
-			.filter((element) => hasCapability(capabilities, element.requiredCapability));
+		const registeredDefinitions = this.sidebarElements.list(identifier);
+		validateSidebarHierarchy(registeredDefinitions);
+		const definitions = registeredDefinitions.filter((element) =>
+			hasCapability(capabilities, element.requiredCapability),
+		);
 		return {
 			id: sidebar.identifier,
 			...(sidebar.eyebrow ? { eyebrow: sidebar.eyebrow } : {}),
@@ -181,6 +195,20 @@ export class NavigationResolver {
 			...(sidebar.icon ? { icon: sidebar.icon } : {}),
 			items: buildSidebarTree(definitions, path),
 		};
+	}
+}
+
+function validateSidebarHierarchy(definitions: readonly SidebarElementDefinition[]): void {
+	const elements = new Map(definitions.map((element) => [element.identifier, element]));
+	for (const element of definitions) {
+		if (!element.parentIdentifier) continue;
+		if (element.kind !== "link")
+			throw new Error("Only sidebar links can be nested under another element.");
+		const parent = elements.get(element.parentIdentifier);
+		if (!parent) throw new Error(`The sidebar parent ${element.parentIdentifier} does not exist.`);
+		if (parent.kind === "separator")
+			throw new Error("A sidebar separator cannot contain nested links.");
+		if (parent.parentIdentifier) throw new Error("A sidebar supports only one nested link level.");
 	}
 }
 
@@ -194,6 +222,13 @@ function buildSidebarTree(
 		.sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
 		.map((element): SidebarElementView => {
 			const children = buildSidebarTree(definitions, path, element.identifier);
+			if (element.kind === "separator") {
+				return {
+					kind: "separator",
+					id: element.identifier,
+					label: element.label,
+				};
+			}
 			if (element.kind === "category") {
 				return {
 					kind: "category",
@@ -231,12 +266,11 @@ function navigationLinkView(link: MainNavigationLinkDefinition, path: string): N
 
 function validateIdentifier(identifier: string): void {
 	if (!/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(identifier))
-		throw new Error(`L’identifiant ${identifier} est invalide.`);
+		throw new Error(`The identifier ${identifier} is invalid.`);
 }
 
 function validateHref(href: string): void {
-	if (!href.startsWith("/"))
-		throw new Error("Un lien de navigation doit utiliser un chemin absolu.");
+	if (!href.startsWith("/")) throw new Error("A navigation link must use an absolute path.");
 }
 
 function hasCapability(capabilities: ReadonlySet<string>, required?: string): boolean {

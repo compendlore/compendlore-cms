@@ -1,0 +1,10 @@
+{
+	"bodyWidth": 768,
+	"documentWidth": 768,
+	"viewportWidth": 768,
+	"columnCount": 2,
+	"gridDisplay": "grid",
+	"topbarPosition": "sticky",
+	"fullPageContent": true,
+	"actionContentFits": true
+}

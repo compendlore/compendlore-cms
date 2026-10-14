@@ -3,7 +3,11 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const backendDirectory = fileURLToPath(new URL("../backend/", import.meta.url));
+const sourceDirectories = [
+	fileURLToPath(new URL("../backend/", import.meta.url)),
+	fileURLToPath(new URL("../frontend/", import.meta.url)),
+	fileURLToPath(new URL("../scripts/", import.meta.url)),
+];
 const repositoryDirectory = fileURLToPath(new URL("../", import.meta.url));
 const frenchDiagnostic =
 	/[À-ÿ]|\b(?:Le|La|Les|Un|Une|Ce|Cet|Cette|Ces|Seul|Seule|Il|Elle|Ils|Elles|Corps|Trop|Aucun|Aucune|doit|doivent|déjà|invalide|invalides|interdit|interdite|absent|absente|inconnu|inconnue|introuvable|indisponible|ressource|accès|facteur|Erreur|échec|refusé|refusée|obligatoire|obligatoires|manquant|manquante|peut|peuvent|modifier|contient|contiennent|utilise|exige|bloqué|bloquée|détecté|détectée)\b|\b(?:[LlDdNQ]|[Qq]u)'/u;
@@ -20,7 +24,7 @@ const diagnosticLabelFunctions = new Set([
 ]);
 const failures = [];
 
-for (const path of await collectTypeScriptFiles(backendDirectory)) {
+for (const path of (await Promise.all(sourceDirectories.map(collectTypeScriptFiles))).flat()) {
 	const sourceText = await readFile(path, "utf8");
 	const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true);
 
@@ -39,6 +43,13 @@ for (const path of await collectTypeScriptFiles(backendDirectory)) {
 		}
 		if (ts.isCallExpression(node)) {
 			const name = node.expression.getText(source);
+			if (/^console\.(?:error|info|log|warn)$/.test(name)) {
+				for (const argument of node.arguments) {
+					if (ts.isStringLiteralLike(argument) && frenchDiagnostic.test(argument.text)) {
+						report(argument, "console diagnostic");
+					}
+				}
+			}
 			if (diagnosticLabelFunctions.has(name)) {
 				for (const argument of node.arguments) {
 					if (ts.isStringLiteralLike(argument) && frenchDiagnostic.test(argument.text)) {
@@ -73,7 +84,7 @@ if (failures.length > 0) {
 	console.error(failures.join("\n"));
 	process.exitCode = 1;
 } else {
-	console.log("Backend exception diagnostics and diagnostic labels are English.");
+	console.log("Application exception diagnostics and diagnostic labels are English.");
 }
 
 async function collectTypeScriptFiles(directory) {
@@ -82,7 +93,7 @@ async function collectTypeScriptFiles(directory) {
 		const path = join(directory, entry.name);
 		if (entry.isDirectory()) {
 			paths.push(...(await collectTypeScriptFiles(path)));
-		} else if (entry.isFile() && entry.name.endsWith(".ts")) {
+		} else if (entry.isFile() && /\.(?:mjs|tsx?)$/.test(entry.name)) {
 			paths.push(path);
 		}
 	}

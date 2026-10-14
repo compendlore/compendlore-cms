@@ -7,6 +7,21 @@ until the release manager assigns a version and publication date.
 
 ### Added
 
+- Added a capability-aware frontend module host with route collision protection, localized
+  unavailable states, module-level render isolation, and externally preserved contribution state.
+- Added browser-driven frontend quality checks for responsive geometry, keyboard focus, reduced
+  motion, visual signatures, console failures, and the resources delivered to public visitors.
+- Added the typed theme foundation with explicit surface boundaries, deterministic layer ordering,
+  Registry validation, safe Compendlore fallbacks, and isolated administrative recovery.
+- Added a bounded theme-token catalog for semantic colors, borders, system and analyzed custom
+  fonts, typography roles, full-page spacing, and declarative media-query overrides.
+- Added a localized, segmented and accessible rich Brand contract with safe React rendering and a
+  deterministic text fallback.
+- Added surface-bound theme projections that compile validated tokens to known CSS variables, apply
+  responsive overrides before React mounts, and fail back to the Compendlore theme.
+- Added immediate administration-session revocation, protected asset cache and CSP metadata, and an
+  accessible paginated notification center limited to safe native presentations.
+
 - Established the Encore.ts backend, React frontends, TypeScript 6 workspaces, and shared Sass
   presentation foundation.
 - Added the Core security foundation, durable extension event stream, private security kernel,
@@ -43,6 +58,25 @@ until the release manager assigns a version and publication date.
 
 ### Changed
 
+- Made the public site full-width while preserving configurable inline page spacing as a future
+  bounded theme token.
+
+- Revalidated the frontend foundation with locked React, Vite, Sass Embedded, and TypeScript 6
+  contracts, separate production bundles, and a single development origin.
+- Replaced residual legacy product labels in frontend documents and shared primitives with the
+  Compendlore identity.
+- Made the recovered visual baseline verifiable across palette, typography, layout, components,
+  interaction states, reduced motion, icons, and the absence of remote style dependencies.
+- Completed the shared design-system primitives with accessible descriptions, table semantics,
+  keyboard-operated tabs, trapped modal focus, reusable lists, and English-only diagnostics.
+- Added a development-only design-system showcase so keyboard, focus, responsive, and accessibility
+  behavior can be reviewed without exposing a production route.
+- Added an explicit anonymous public-session context to frontend contributions and strict checks for
+  public routing, capability filtering, browser history, navigation semantics, and safe fallbacks.
+- Replaced the public missing-route module warning with a localized 404 presentation and a visible
+  error code anchored in the message frame.
+- Gated the administration development preview behind an explicit opt-in, localized its unavailable
+  route message, and extended English-only technical diagnostics to repository validation scripts.
 - Hardened external connector contracts with bounded endpoint collections, explicit HTTP methods,
   response formats, parameter locations, status codes, boolean flags, and executable connection
   tests that never require caller-supplied parameters.
