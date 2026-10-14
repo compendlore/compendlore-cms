@@ -137,7 +137,7 @@ export class InstanceIdentityError extends Error {
 		readonly code: string,
 		options?: ErrorOptions,
 	) {
-		super("L’identité cryptographique de l’instance est indisponible.", options);
+		super("The instance cryptographic identity is unavailable.", options);
 		this.name = "InstanceIdentityError";
 	}
 }

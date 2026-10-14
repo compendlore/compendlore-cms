@@ -6,7 +6,12 @@ import type {
 	ApiValueSchema,
 	RegistryCatalog,
 } from "../../cms-registry/src/index.js";
-import type { RegisteredMethodInvoker } from "../../core/src/index.js";
+import {
+	DefaultCoreSecurityBoundary,
+	type CoreSecurityBoundary,
+	type RegisteredMethodInvoker,
+	type SecurityContext,
+} from "../../core/src/index.js";
 
 const DETAILED_ERRORS_CAPABILITY = "core.errors.details";
 const MAXIMUM_BODY_BYTES = 1_048_576;
@@ -15,6 +20,8 @@ export interface ApiIdentity {
 	readonly id: string;
 	readonly kind: "api-key" | "oauth-client" | "system" | "user";
 	readonly capabilities: ReadonlySet<string>;
+	readonly authenticatedAt?: Date;
+	readonly multiFactorVerifiedAt?: Date;
 }
 
 export interface ApiCredentials {
@@ -33,6 +40,9 @@ export interface ApiInvocationRequest {
 	readonly idempotencyKey?: string;
 	readonly locale?: string;
 	readonly correlationId?: string;
+	readonly origin?: string;
+	readonly csrfToken?: string;
+	readonly csrfCookie?: string;
 }
 
 export interface ApiInvocationResponse {
@@ -207,6 +217,11 @@ export class SlidingWindowRateLimiter {
 }
 
 export class ApiGateway {
+	private readonly replay = new Map<
+		string,
+		{ readonly fingerprint: string; readonly expiresAt: number }
+	>();
+
 	constructor(
 		private readonly registry: Pick<RegisteredMethodInvoker, "invokeRegisteredMethod"> & {
 			catalog(): Promise<RegistryCatalog>;
@@ -216,6 +231,7 @@ export class ApiGateway {
 		private readonly audit: ApiAuditPort,
 		private readonly rateLimiter = new SlidingWindowRateLimiter(),
 		private readonly technicalLog?: ApiTechnicalLogPort,
+		private readonly security: CoreSecurityBoundary = new DefaultCoreSecurityBoundary(),
 	) {}
 
 	async invoke(request: ApiInvocationRequest): Promise<ApiInvocationResponse> {
@@ -224,13 +240,15 @@ export class ApiGateway {
 		let resolvedEndpoint: ResolvedEndpoint | undefined;
 		let identity: ApiIdentity | undefined;
 		try {
-			validateBody(request.body);
+			const normalizedBody = normalizeInput(request.body);
+			validateBody(normalizedBody);
 			const endpoint = await this.resolveEndpoint(request);
 			resolvedEndpoint = endpoint;
 			endpointKey = endpoint.key;
 			identity = await this.authentication.authenticate(request.credentials, request.audience);
 			await this.authorize(endpoint, identity, request.audience);
-			if (!matchesSchema(endpoint.contract.input, request.body)) {
+			this.validateTransportSecurity(endpoint, request);
+			if (!matchesSchema(endpoint.contract.input, normalizedBody)) {
 				throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
 			}
 			const quota = endpoint.contract.quota;
@@ -244,15 +262,60 @@ export class ApiGateway {
 			) {
 				throw new ApiGatewayError("api.quota_exceeded", 429, "Api quota exceeded.");
 			}
+			this.assertReplay(endpoint, request, normalizedBody, identity);
+			const operation = endpoint.contract.businessMethodIdentifier;
+			const context = securityContext(request, correlationId, identity, endpoint.key);
+			const decision = await this.security.secureInput({
+				operation,
+				value: normalizedBody,
+				context,
+				policy: {
+					identifier: endpoint.key,
+					version: endpoint.contract.security?.policyVersion ?? endpoint.contract.contractVersion,
+					allowAnonymous: request.audience === "public" && !endpoint.contract.requiredCapability,
+					...(endpoint.contract.requiredCapability
+						? { requiredCapabilities: [endpoint.contract.requiredCapability] }
+						: {}),
+					maximumSerializedBytes: MAXIMUM_BODY_BYTES,
+					maximumDepth: endpoint.contract.security?.maximumDepth ?? 12,
+					maximumStringLength: endpoint.contract.security?.maximumStringLength ?? 1_048_576,
+					...(endpoint.contract.security?.multiFactorMaximumAgeSeconds
+						? {
+								multiFactorMaximumAgeMs:
+									endpoint.contract.security.multiFactorMaximumAgeSeconds * 1_000,
+							}
+						: {}),
+				},
+			});
+			if (decision.status !== "allowed") throw securityDecisionError(decision);
+			this.security.assertEvidence(decision.secured.evidence, {
+				operation,
+				...(context.resource ? { resource: context.resource } : {}),
+			});
 			const output = await this.registry.invokeRegisteredMethod({
-				methodIdentifier: endpoint.contract.businessMethodIdentifier,
-				input: request.body,
+				methodIdentifier: operation,
+				input: decision.secured.value,
 				...(identity?.kind === "user" ? { actorId: identity.id } : {}),
 				...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
 			});
 			if (!matchesSchema(endpoint.contract.output, output)) {
 				throw new ApiGatewayError("api.output_invalid", 500, "Api output invalid.");
 			}
+			const securedOutput = await this.security.secureOutput({
+				operation,
+				value: output,
+				context,
+				policy: {
+					identifier: `${endpoint.key}.output`,
+					version: endpoint.contract.security?.policyVersion ?? endpoint.contract.contractVersion,
+					...(endpoint.contract.security?.output?.omittedFields
+						? { omittedFields: endpoint.contract.security.output.omittedFields }
+						: {}),
+					...(endpoint.contract.security?.output?.maskedFields
+						? { maskedFields: endpoint.contract.security.output.maskedFields }
+						: {}),
+				},
+			});
 			await this.audit.record({
 				correlationId,
 				endpointKey,
@@ -261,7 +324,7 @@ export class ApiGateway {
 				outcome: "allowed",
 				occurredAt: new Date(),
 			});
-			return { status: 200, correlationId, body: output };
+			return { status: 200, correlationId, body: securedOutput.value };
 		} catch (error) {
 			const errorCode = readErrorCode(error);
 			const response = publicError(
@@ -322,6 +385,9 @@ export class ApiGateway {
 		if (audience === "site" && !identity) {
 			throw new ApiGatewayError("api.authentication_required", 401, "Api authentication required.");
 		}
+		if (endpoint.contract.requiredCapability && !identity) {
+			throw new ApiGatewayError("api.authentication_required", 401, "Api authentication required.");
+		}
 		if (
 			endpoint.contract.requiredCapability &&
 			!identity?.capabilities.has("*") &&
@@ -329,6 +395,46 @@ export class ApiGateway {
 		) {
 			throw new ApiGatewayError("api.authorization_denied", 403, "Api authorization denied.");
 		}
+	}
+
+	private validateTransportSecurity(
+		endpoint: ResolvedEndpoint,
+		request: ApiInvocationRequest,
+	): void {
+		const policy = endpoint.contract.security;
+		if (
+			policy?.allowedOrigins?.length &&
+			(!request.origin || !policy.allowedOrigins.includes(request.origin))
+		)
+			throw new ApiGatewayError("api.origin_denied", 403, "Api origin denied.");
+		if (
+			policy?.csrfRequired &&
+			request.audience === "site" &&
+			request.method !== "GET" &&
+			(!request.csrfToken ||
+				!request.csrfCookie ||
+				!safeEqualText(request.csrfToken, request.csrfCookie))
+		)
+			throw new ApiGatewayError("api.csrf_invalid", 403, "Api CSRF validation failed.");
+	}
+
+	private assertReplay(
+		endpoint: ResolvedEndpoint,
+		request: ApiInvocationRequest,
+		body: unknown,
+		identity: ApiIdentity | undefined,
+	): void {
+		if (!endpoint.contract.security?.replayProtection) return;
+		if (!request.idempotencyKey || !/^[A-Za-z0-9._:-]{8,160}$/.test(request.idempotencyKey))
+			throw new ApiGatewayError("api.replay_key_required", 400, "Api replay key required.");
+		const now = Date.now();
+		for (const [key, item] of this.replay) if (item.expiresAt <= now) this.replay.delete(key);
+		const key = `${endpoint.key}:${identity?.id ?? "anonymous"}:${request.idempotencyKey}`;
+		const fingerprint = digestText(JSON.stringify(body)).toString("hex");
+		const current = this.replay.get(key);
+		if (current && current.fingerprint !== fingerprint)
+			throw new ApiGatewayError("api.replay_detected", 409, "Api replay detected.");
+		this.replay.set(key, { fingerprint, expiresAt: now + 300_000 });
 	}
 }
 
@@ -482,4 +588,69 @@ function digestText(value: string): Buffer {
 
 function safeEqual(first: Buffer, second: Buffer): boolean {
 	return first.length === second.length && timingSafeEqual(first, second);
+}
+
+function safeEqualText(first: string, second: string): boolean {
+	return safeEqual(Buffer.from(first), Buffer.from(second));
+}
+
+function securityContext(
+	request: ApiInvocationRequest,
+	correlationId: string,
+	identity: ApiIdentity | undefined,
+	endpointKey: string,
+): SecurityContext {
+	return {
+		correlationId,
+		surface: request.audience === "site" ? "site" : request.audience,
+		...(identity
+			? {
+					subject: {
+						id: identity.id,
+						kind: identity.kind,
+						capabilities: identity.capabilities,
+						...(identity.authenticatedAt ? { authenticatedAt: identity.authenticatedAt } : {}),
+						...(identity.multiFactorVerifiedAt
+							? { multiFactorVerifiedAt: identity.multiFactorVerifiedAt }
+							: {}),
+					},
+				}
+			: {}),
+		resource: { kind: "api-endpoint", identifier: endpointKey },
+		...(request.origin ? { origin: request.origin } : {}),
+	};
+}
+
+function securityDecisionError(decision: {
+	readonly status: "denied" | "reauthentication-required" | "step-up-required";
+	readonly reasonCode: string;
+}): ApiGatewayError {
+	if (decision.status === "reauthentication-required")
+		return new ApiGatewayError("api.authentication_required", 401, "Api authentication required.");
+	if (decision.status === "step-up-required")
+		return new ApiGatewayError("api.step_up_required", 403, "Api step-up required.");
+	return new ApiGatewayError("api.authorization_denied", 403, "Api authorization denied.");
+}
+
+function normalizeInput(value: unknown, seen = new Set<object>()): unknown {
+	if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+	if (typeof value === "number") {
+		if (!Number.isFinite(value))
+			throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
+		return value;
+	}
+	if (typeof value !== "object" || seen.has(value))
+		throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
+	seen.add(value);
+	const normalized = Array.isArray(value)
+		? value.map((item) => normalizeInput(item, seen))
+		: Object.fromEntries(
+				Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+					if (["__proto__", "constructor", "prototype"].includes(key))
+						throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
+					return [key, normalizeInput(item, seen)];
+				}),
+			);
+	seen.delete(value);
+	return normalized;
 }

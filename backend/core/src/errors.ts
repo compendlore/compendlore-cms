@@ -9,8 +9,10 @@ export type CoreErrorCode =
 	| "security.csrf_invalid"
 	| "security.rate_limited"
 	| "storage.invalid_key"
+	| "messaging.topic_unknown"
 	| "network.denied"
 	| "lifecycle.invalid_state"
+	| "infrastructure.conflict"
 	| "infrastructure.unavailable";
 
 export interface CoreErrorDetails {

@@ -34,6 +34,33 @@ import {
 	SecurityKernel,
 } from "../../security-kernel/src/index.js";
 import { CoreInstanceIdentityService } from "./instance-identity.js";
+import {
+	InMemoryMessagingRepository,
+	PersistentMessagingService,
+	type MessagingRepository,
+} from "./messaging.js";
+import {
+	InMemoryMessageAudienceDirectory,
+	InMemoryMessageDeliveryRepository,
+	MessageDeliveryService,
+	type MessageAudienceDirectory,
+	type MessageDeliveryRepository,
+} from "./message-delivery.js";
+import {
+	InMemoryNotificationTemplateRepository,
+	NotificationTemplateService,
+	type NotificationConnectorCatalog,
+	type NotificationTemplateRepository,
+} from "./notification-templates.js";
+import {
+	InMemoryMessagingCampaignRepository,
+	MessagingCampaignService,
+	type MessagingCampaignAudiencePreview,
+	type MessagingCampaignAuthorization,
+	type MessagingCampaignPublisher,
+	type MessagingCampaignRepository,
+	type MessagingContributionState,
+} from "./messaging-campaigns.js";
 
 const defaultInstancePrivateKeyStore = new InMemoryInstancePrivateKeyStore();
 
@@ -51,6 +78,10 @@ export interface CoreApplication {
 	readonly eventStream: CoreEventStream;
 	readonly securityBoundary: CoreSecurityBoundary;
 	readonly instanceIdentity: CoreInstanceIdentityService;
+	readonly messaging: PersistentMessagingService;
+	readonly messageDelivery: MessageDeliveryService;
+	readonly notifications: NotificationTemplateService;
+	readonly messagingCampaigns: MessagingCampaignService;
 	readonly objectStorage: ObjectStorage;
 	readonly tasks: TaskQueue;
 	readonly outbound: OutboundGateway;
@@ -67,6 +98,16 @@ export async function bootstrapCore(input: {
 	readonly tasks?: TaskQueue;
 	readonly outbound?: OutboundGateway;
 	readonly instanceIdentityCryptography?: InstanceIdentityCryptography;
+	readonly messagingRepository?: MessagingRepository;
+	readonly messageAudienceDirectory?: MessageAudienceDirectory;
+	readonly messageDeliveryRepository?: MessageDeliveryRepository;
+	readonly notificationTemplateRepository?: NotificationTemplateRepository;
+	readonly notificationConnectorCatalog?: NotificationConnectorCatalog;
+	readonly messagingCampaignRepository?: MessagingCampaignRepository;
+	readonly messagingCampaignAuthorization?: MessagingCampaignAuthorization;
+	readonly messagingContributionState?: MessagingContributionState;
+	readonly messagingCampaignAudiencePreview?: MessagingCampaignAudiencePreview;
+	readonly messagingCampaignPublisher?: MessagingCampaignPublisher;
 	readonly now?: () => Date;
 }): Promise<CoreApplication> {
 	const [passwordPepper, csrfSecret, securityDigestSecret] = await Promise.all([
@@ -115,6 +156,14 @@ export async function bootstrapCore(input: {
 			now,
 		);
 		const csrf = new CsrfProtection(csrfSecret);
+		const notifications = new NotificationTemplateService(
+			input.notificationTemplateRepository ?? new InMemoryNotificationTemplateRepository(),
+			input.notificationConnectorCatalog ?? {
+				async hasConnector() {
+					return false;
+				},
+			},
+		);
 		return {
 			instanceId,
 			runtime,
@@ -129,6 +178,26 @@ export async function bootstrapCore(input: {
 			eventStream: new CoreEventStream(input.store, securityDigestSecret),
 			securityBoundary,
 			instanceIdentity,
+			messaging: new PersistentMessagingService(
+				input.messagingRepository ?? new InMemoryMessagingRepository(),
+				now,
+				input.messagingContributionState ?? activeMessagingContributions,
+			),
+			messageDelivery: new MessageDeliveryService(
+				input.messageAudienceDirectory ?? new InMemoryMessageAudienceDirectory({}),
+				input.messageDeliveryRepository ?? new InMemoryMessageDeliveryRepository(),
+				now,
+			),
+			notifications,
+			messagingCampaigns: new MessagingCampaignService(
+				input.messagingCampaignRepository ?? new InMemoryMessagingCampaignRepository(),
+				input.messagingCampaignAuthorization ?? denyCampaignAuthorization,
+				input.messagingContributionState ?? activeMessagingContributions,
+				input.messagingCampaignAudiencePreview ?? unavailableCampaignAudiencePreview,
+				notifications,
+				input.messagingCampaignPublisher ?? unavailableCampaignPublisher,
+				now,
+			),
 			objectStorage: input.objectStorage ?? new InMemoryObjectStorage(),
 			tasks: input.tasks ?? new InMemoryTaskQueue(),
 			outbound: input.outbound ?? new OutboundGateway(input.config.outboundHosts),
@@ -138,3 +207,39 @@ export async function bootstrapCore(input: {
 		throw error;
 	}
 }
+
+const denyCampaignAuthorization: MessagingCampaignAuthorization = {
+	async hasCapability() {
+		return false;
+	},
+};
+
+const activeMessagingContributions: MessagingContributionState = {
+	async isActive() {
+		return true;
+	},
+};
+
+const unavailableCampaignAudiencePreview: MessagingCampaignAudiencePreview = {
+	async preview() {
+		throw new Error("The campaign audience preview is not configured.");
+	},
+};
+
+const unavailableCampaignPublisher: MessagingCampaignPublisher = {
+	async sendTest() {
+		throw new Error("The campaign publisher is not configured.");
+	},
+	async publish() {
+		throw new Error("The campaign publisher is not configured.");
+	},
+	async revoke() {
+		throw new Error("The campaign publisher is not configured.");
+	},
+	async replayDeadLetter() {
+		throw new Error("The campaign publisher is not configured.");
+	},
+	async deliverySummary() {
+		throw new Error("The campaign publisher is not configured.");
+	},
+};

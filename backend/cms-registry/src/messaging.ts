@@ -15,6 +15,7 @@ export const messageAudienceKinds = [
 	"group",
 	"permission",
 	"role",
+	"segment",
 	"team",
 	"user",
 	"user-list",
@@ -68,4 +69,22 @@ export interface MessageTemplateDefinition {
 	readonly summary?: Readonly<Record<string, string>>;
 	readonly body: Readonly<Record<string, string>>;
 	readonly actionLabels?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+}
+
+export interface MessageSegmentDefinition {
+	readonly resolverMethodIdentifier: string;
+	readonly maximumRecipients: number;
+	readonly purpose: Readonly<Record<string, string>>;
+}
+
+export interface MessageActionDefinition {
+	readonly methodIdentifier: string;
+	readonly requiredCapability?: string;
+	readonly confirmationRequired: boolean;
+}
+
+export interface MessageSubscriptionDefinition {
+	readonly topicIdentifier: string;
+	readonly defaultEnabled: boolean;
+	readonly userControllable: boolean;
 }

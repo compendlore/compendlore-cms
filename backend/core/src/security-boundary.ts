@@ -13,6 +13,8 @@ import {
 } from "../../security-kernel/src/index.js";
 import type { CoreSecurityAttempt, CoreStore } from "./store.js";
 
+export type { SecurityContext } from "../../security-kernel/src/index.js";
+
 export interface CoreSecurityBoundary {
 	secureInput<T>(input: {
 		readonly operation: string;

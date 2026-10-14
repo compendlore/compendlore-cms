@@ -49,8 +49,8 @@ export class CoreEventStream {
 		}
 		const receivedAt = this.now();
 		const occurredAt = input.occurredAt ?? receivedAt;
-		assertValidDate(occurredAt, "La date de l’événement est invalide.");
-		assertValidDate(input.retentionUntil, "La date de conservation est invalide.");
+		assertValidDate(occurredAt, "The event date is invalid.");
+		assertValidDate(input.retentionUntil, "The retention date is invalid.");
 		if (occurredAt.getTime() > receivedAt.getTime() + MAXIMUM_CLOCK_DRIFT_MS) {
 			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}

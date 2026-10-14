@@ -1,13 +1,13 @@
 export interface FoundationIdentity {
 	readonly packageName: string;
 	readonly description: string;
-	readonly status: "foundation";
+	readonly status: "operational";
 }
 
 export const foundation: FoundationIdentity = Object.freeze({
 	packageName: "@compendlore/api",
-	description: "Façade API du CMS",
-	status: "foundation",
+	description: "CMS API gateway",
+	status: "operational",
 });
 
 export * from "./gateway.js";

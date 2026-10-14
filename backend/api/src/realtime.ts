@@ -3,6 +3,14 @@ import { ApiGatewayError } from "./gateway.js";
 
 const DEFAULT_INACTIVITY_MS = 300_000;
 const DEFAULT_DIRECT_RECIPIENT_LIMIT = 50;
+const MAXIMUM_PAYLOAD_BYTES = 1_048_576;
+const messageKinds = new Set<RealtimeMessageKind>([
+	"catalog-invalidation",
+	"maintenance",
+	"notification",
+	"task-progress",
+]);
+const deliveryModes = new Set<RealtimeDeliveryMode>(["direct", "durable", "simple"]);
 
 export type RealtimeMessageKind =
 	"catalog-invalidation" | "maintenance" | "notification" | "task-progress";
@@ -107,10 +115,7 @@ export class RealtimeHub {
 					"Realtime mass direct forbidden.",
 				);
 			}
-			if (
-				input.target.kind === "users" &&
-				input.target.identifiers.length > this.maximumDirectRecipients
-			) {
+			if (recipients.length > this.maximumDirectRecipients) {
 				throw new ApiGatewayError(
 					"realtime.direct_limit_exceeded",
 					400,
@@ -253,6 +258,10 @@ export class RealtimeHub {
 }
 
 function validateMessage(input: SendRealtimeMessageInput): void {
+	if (!messageKinds.has(input.kind) || !deliveryModes.has(input.mode)) {
+		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
+	}
+	validateTarget(input.target);
 	if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs < 1_000 || input.ttlMs > 604_800_000) {
 		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 	}
@@ -270,8 +279,43 @@ function validateMessage(input: SendRealtimeMessageInput): void {
 		) {
 			throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 		}
+	} else if (input.acknowledgementTimeoutMs !== undefined || input.retryLimit !== undefined) {
+		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 	}
-	JSON.stringify(input.payload);
+	let serialized: string | undefined;
+	try {
+		serialized = JSON.stringify(input.payload);
+	} catch {
+		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
+	}
+	if (!serialized || Buffer.byteLength(serialized, "utf8") > MAXIMUM_PAYLOAD_BYTES) {
+		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
+	}
+}
+
+function validateTarget(target: RealtimeTarget): void {
+	if (target.kind === "all") return;
+	if (target.kind === "users") {
+		if (
+			target.identifiers.length === 0 ||
+			target.identifiers.length > 10_000 ||
+			new Set(target.identifiers).size !== target.identifiers.length ||
+			target.identifiers.some((identifier) => !validTargetIdentifier(identifier))
+		) {
+			throw new ApiGatewayError("realtime.target_invalid", 400, "Realtime target invalid.");
+		}
+		return;
+	}
+	if (
+		!["group", "role", "user"].includes(target.kind) ||
+		!validTargetIdentifier(target.identifier)
+	) {
+		throw new ApiGatewayError("realtime.target_invalid", 400, "Realtime target invalid.");
+	}
+}
+
+function validTargetIdentifier(identifier: string): boolean {
+	return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(identifier);
 }
 
 function matchesTarget(identity: RealtimeConnectionIdentity, target: RealtimeTarget): boolean {
