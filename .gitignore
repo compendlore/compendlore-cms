@@ -4,6 +4,8 @@ dist/
 artifacts/
 runtime/
 coverage/
+playwright-report/
+test-results/
 .cache/
 .local/
 backend/.encore/

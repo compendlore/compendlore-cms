@@ -1261,6 +1261,16 @@ test("prépare les contributions transversales sans exposer leur implémentation
 				requiredCapabilities: [`${type}.read`],
 				dependencies: [{ contributionKey: "module.prepared-owner", optional: true }],
 				withdrawalPolicy: "preserve-data",
+				...(type === "theme"
+					? {
+							theme: {
+								kind: "full-theme",
+								surfaces: ["site"],
+								designSystemVersion: "^1.0.0",
+								fallback: "compendlore",
+							},
+						}
+					: {}),
 			}),
 			{ requester: nativeOwner },
 		);

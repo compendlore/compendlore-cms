@@ -2,6 +2,7 @@ import type {
 	ConnectorDefinition,
 	CoreJsonValue,
 	FrontendNetworkDefinition,
+	ThemeContractDefinition,
 } from "../../core/src/index.js";
 import type {
 	MessageActionDefinition,
@@ -195,6 +196,7 @@ export interface ContributionDefinition {
 	readonly messageAction?: MessageActionDefinition;
 	readonly messageSegment?: MessageSegmentDefinition;
 	readonly messageSubscription?: MessageSubscriptionDefinition;
+	readonly theme?: ThemeContractDefinition;
 	readonly payload?: CoreJsonValue;
 }
 

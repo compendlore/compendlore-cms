@@ -36,13 +36,20 @@ function administrationDevelopmentHost(): Plugin {
 		configureServer(server) {
 			server.middlewares.use(async (request, response, next) => {
 				const accept = request.headers.accept ?? "";
-				const pathname = new URL(request.url ?? "/", "http://frontend.local").pathname;
+				const url = new URL(request.url ?? "/", "http://frontend.local");
+				const pathname = url.pathname;
 				if (
 					request.method !== "GET" ||
 					!accept.includes("text/html") ||
 					!/^\/admin(?:\/|$)/.test(pathname)
 				) {
 					next();
+					return;
+				}
+				if (url.searchParams.get("administration-preview") !== "1") {
+					response.statusCode = 302;
+					response.setHeader("location", "/");
+					response.end();
 					return;
 				}
 
@@ -57,7 +64,9 @@ function administrationDevelopmentHost(): Plugin {
 					response.setHeader("content-type", "text/html; charset=utf-8");
 					response.end(transformed);
 				} catch (error) {
-					next(error instanceof Error ? error : new Error("Chargement administratif impossible."));
+					next(
+						error instanceof Error ? error : new Error("Unable to load the administration app."),
+					);
 				}
 			});
 		},

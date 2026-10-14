@@ -12,13 +12,13 @@ for (const application of applications) {
 	const files = await recursiveFiles(root);
 	const sourceMaps = files.filter((file) => file.endsWith(".map"));
 	if (sourceMaps.length)
-		throw new Error(`${application.name} expose des sources maps : ${sourceMaps.join(", ")}`);
+		throw new Error(`${application.name} exposes source maps: ${sourceMaps.join(", ")}`);
 	const manifest = JSON.parse(await readFile(join(root, ".vite", "manifest.json"), "utf8"));
 	const entry = Object.values(manifest).find((value) => value.isEntry);
 	if (!entry || entry.src !== application.expectedEntry)
-		throw new Error(`Le manifeste ${application.name} ne possède pas le bon point d’entrée.`);
+		throw new Error(`The ${application.name} manifest has an invalid entry point.`);
 	if (!files.includes("index.html") || !files.includes(entry.file))
-		throw new Error(`Le build ${application.name} est incomplet.`);
+		throw new Error(`The ${application.name} build is incomplete.`);
 	manifests.set(application.name, manifest);
 }
 
@@ -30,17 +30,17 @@ const leakedScripts = [...administrationFiles].filter(
 	(file) => file.endsWith(".js") && siteFiles.has(file),
 );
 if (leakedScripts.length)
-	throw new Error(`Le bundle public partage un script administratif : ${leakedScripts.join(", ")}`);
+	throw new Error(`The public bundle shares an administration script: ${leakedScripts.join(", ")}`);
 
 const administrationDocument = await readFile(
 	join(process.cwd(), "frontend", "administration", "dist", "index.html"),
 	"utf8",
 );
 if (!administrationDocument.includes('src="/admin/assets/')) {
-	throw new Error("Le bundle administratif n’est pas construit pour la route /admin.");
+	throw new Error("The administration bundle is not built for the /admin route.");
 }
 
-console.log("Bundles frontend séparés, manifestes valides et sources maps absentes.");
+console.log("Frontend bundles are separate, manifests are valid, and no source maps were emitted.");
 
 async function recursiveFiles(root, relative = "") {
 	const entries = await readdir(join(root, relative), { withFileTypes: true });

@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 
 export type IconName =
-	"account" | "administration" | "alert" | "brand" | "chevron" | "logout" | "menu" | "settings";
+	| "account"
+	| "administration"
+	| "alert"
+	| "bell"
+	| "brand"
+	| "chevron"
+	| "logout"
+	| "menu"
+	| "settings";
 
 const paths: Readonly<Record<IconName, ReactNode>> = {
 	account: (
@@ -20,6 +28,12 @@ const paths: Readonly<Record<IconName, ReactNode>> = {
 		<>
 			<path d="M12 3 2.8 20h18.4L12 3Z" />
 			<path d="M12 9v5M12 17h.01" />
+		</>
+	),
+	bell: (
+		<>
+			<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
+			<path d="M10 21h4" />
 		</>
 	),
 	brand: (

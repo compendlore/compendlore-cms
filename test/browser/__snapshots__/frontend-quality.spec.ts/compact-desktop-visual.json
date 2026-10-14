@@ -1,0 +1,10 @@
+{
+	"bodyWidth": 1024,
+	"documentWidth": 1024,
+	"viewportWidth": 1024,
+	"columnCount": 2,
+	"gridDisplay": "grid",
+	"topbarPosition": "fixed",
+	"fullPageContent": true,
+	"actionContentFits": true
+}

@@ -3,8 +3,8 @@
 
 @mixin application-shell {
 	:root {
-		color: tokens.$color-text;
-		background: tokens.$color-background;
+		color: var(--text, #{tokens.$color-text});
+		background: var(--bg, #{tokens.$color-background});
 		font-family: tokens.$font-interface;
 		font-synthesis: none;
 		text-rendering: optimizeLegibility;
@@ -22,6 +22,36 @@
 		--text-dim: #{tokens.$color-text-dim};
 		--danger: #{tokens.$color-danger};
 		--success: #{tokens.$color-success};
+		--page-inline-spacing: clamp(1.75rem, 6vw, 5.6rem);
+		--theme-notification-background: #{tokens.$color-surface-raised};
+		--theme-notification-border-color: #{tokens.$color-border-strong};
+		--theme-notification-accent-color: #{tokens.$color-accent};
+		--theme-notification-border-width: 1px;
+		--theme-notification-border-radius: 0.5rem;
+		--theme-notification-padding: 1rem;
+		--theme-notification-content-gap: 0.55rem;
+		--theme-notification-shadow: 0 1rem 3rem rgb(0 0 0 / 42%);
+		--theme-notification-title-color: #{tokens.$color-text-strong};
+		--theme-notification-title-font-family: #{tokens.$font-interface};
+		--theme-notification-title-font-size: 1rem;
+		--theme-notification-title-font-weight: 600;
+		--theme-notification-title-line-height: 1.3;
+		--theme-notification-title-letter-spacing: 0;
+		--theme-notification-title-text-transform: none;
+		--theme-notification-body-color: #{tokens.$color-text};
+		--theme-notification-body-font-family: #{tokens.$font-interface};
+		--theme-notification-body-font-size: 0.95rem;
+		--theme-notification-body-font-weight: 400;
+		--theme-notification-body-line-height: 1.5;
+		--theme-notification-body-letter-spacing: 0;
+		--theme-notification-body-text-transform: none;
+		--theme-notification-time-color: #{tokens.$color-text-muted};
+		--theme-notification-time-font-family: #{tokens.$font-interface};
+		--theme-notification-time-font-size: 0.78rem;
+		--theme-notification-time-font-weight: 400;
+		--theme-notification-time-line-height: 1.3;
+		--theme-notification-time-letter-spacing: 0;
+		--theme-notification-time-text-transform: none;
 	}
 
 	* {
@@ -35,7 +65,7 @@
 		background:
 			radial-gradient(circle at 78% -10%, rgb(209 168 90 / 8%), transparent 32rem),
 			radial-gradient(circle at 10% 8%, rgb(78 107 120 / 8%), transparent 28rem),
-			tokens.$color-background;
+			var(--bg, #{tokens.$color-background});
 	}
 
 	button,

@@ -46,7 +46,7 @@ const visited = new Set();
 function visit(node, trail = []) {
 	if (visiting.has(node)) {
 		throw new Error(
-			"Dépendance circulaire : " +
+			"Circular dependency: " +
 				[...trail, node].map((item) => path.relative(process.cwd(), item)).join(" -> "),
 		);
 	}
@@ -59,4 +59,4 @@ function visit(node, trail = []) {
 
 await walk(process.cwd());
 for (const node of graph.keys()) visit(node);
-console.log("Aucune dépendance circulaire détectée.");
+console.log("No circular dependency detected.");

@@ -30,6 +30,7 @@ import {
 	statisticSensitivities,
 	statisticValueTypes,
 } from "./statistics.js";
+import { validateThemeContract } from "./themes.js";
 
 const identifierPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const localePattern = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -158,6 +159,7 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 	if (definition.frontendNetwork) validateFrontendNetwork(definition, definition.frontendNetwork);
 	validateStatisticContract(definition);
 	validateMessagingContract(definition);
+	validateThemeContract(definition);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);
