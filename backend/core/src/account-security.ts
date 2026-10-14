@@ -29,7 +29,7 @@ export class AccountSecurityService {
 	}): Promise<CoreEmailAddress> {
 		const email = input.email.trim();
 		if (email.length > 320) {
-			throw new CoreError("configuration.invalid", "L’adresse électronique est trop longue.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const normalizedEmail = normalizeEmail(email);
 		const now = this.now();
@@ -48,7 +48,7 @@ export class AccountSecurityService {
 
 	async verifyEmail(email: string, verifiedAt = this.now()): Promise<void> {
 		const registered = await this.store.findEmailAddress(normalizeEmail(email));
-		if (!registered) throw new CoreError("configuration.invalid", "Adresse électronique inconnue.");
+		if (!registered) throw new CoreError("configuration.invalid", "Invalid configuration.");
 		await this.store.markEmailVerified(registered.id, verifiedAt);
 	}
 
@@ -83,10 +83,7 @@ export class AccountSecurityService {
 			? await this.store.consumeSecurityToken(purpose, this.digest(token), this.now())
 			: undefined;
 		if (!consumed) {
-			throw new CoreError(
-				"authentication.invalid_credentials",
-				"Le jeton de sécurité est invalide ou expiré.",
-			);
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		return consumed;
 	}
@@ -106,7 +103,7 @@ export class AccountSecurityService {
 			passkey.transports.length > 8 ||
 			passkey.transports.some((transport) => !WEBAUTHN_TRANSPORTS.has(transport))
 		) {
-			throw new CoreError("configuration.invalid", "La passkey est incomplète.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const registered: CorePasskey = {
 			...passkey,
@@ -116,7 +113,7 @@ export class AccountSecurityService {
 			createdAt: this.now(),
 		};
 		if (!Number.isSafeInteger(registered.signCount) || registered.signCount < 0) {
-			throw new CoreError("configuration.invalid", "Le compteur de la passkey est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		await this.store.createPasskey(registered);
 		return registered;
@@ -131,7 +128,7 @@ export class AccountSecurityService {
 			(candidate) => candidate.id === passkeyId,
 		);
 		if (!passkey || !Number.isSafeInteger(nextSignCount) || nextSignCount <= passkey.signCount) {
-			throw new CoreError("authentication.invalid_credentials", "La passkey est invalide.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		await this.store.updatePasskeyUsage(passkeyId, nextSignCount, this.now());
 	}
@@ -173,7 +170,7 @@ export class AccountSecurityService {
 			? await this.store.consumeWebAuthnChallenge(purpose, this.digest(challenge), this.now())
 			: undefined;
 		if (!consumed) {
-			throw new CoreError("authentication.invalid_credentials", "Le défi WebAuthn est invalide.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		return consumed;
 	}
@@ -185,7 +182,7 @@ export class AccountSecurityService {
 	}): Promise<string> {
 		assertPositiveTtl(input.ttlMs);
 		if (!input.deviceIdentifier.trim()) {
-			throw new CoreError("configuration.invalid", "L’identifiant du terminal est obligatoire.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const proof = randomBytes(32).toString("base64url");
 		const createdAt = this.now();
@@ -204,10 +201,7 @@ export class AccountSecurityService {
 	async verifyDeviceProof(proof: string): Promise<CoreSessionDeviceProof> {
 		const stored = proof ? await this.store.findSessionDeviceProof(this.digest(proof)) : undefined;
 		if (!stored || stored.revokedAt || stored.expiresAt.getTime() <= this.now().getTime()) {
-			throw new CoreError(
-				"authentication.invalid_credentials",
-				"La preuve du terminal est invalide.",
-			);
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		return stored;
 	}
@@ -275,10 +269,10 @@ export class AccountSecurityService {
 	async assertAccessAllowed(userId?: string, address?: string): Promise<void> {
 		const now = this.now();
 		if (address && (await this.store.isAddressBanned(this.digestAddress(address), now))) {
-			throw new CoreError("authorization.denied", "Cet accès est suspendu.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		if (userId && (await this.store.isUserBanned(userId, now))) {
-			throw new CoreError("authorization.denied", "Ce compte est suspendu.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 	}
 
@@ -290,7 +284,7 @@ export class AccountSecurityService {
 		metadata?: Readonly<Record<string, CoreJsonValue>>;
 	}): Promise<void> {
 		if (!input.kind.trim()) {
-			throw new CoreError("configuration.invalid", "Le type de tentative est obligatoire.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		validateCoreJsonValue(input.metadata ?? {});
 		await this.store.appendSecurityAttempt({
@@ -312,8 +306,7 @@ export class AccountSecurityService {
 
 	digestAddress(address: string): string {
 		const normalized = address.trim().toLowerCase();
-		if (!normalized)
-			throw new CoreError("configuration.invalid", "L’adresse réseau est obligatoire.");
+		if (!normalized) throw new CoreError("configuration.invalid", "Invalid configuration.");
 		return this.digest(`network:${normalized}`);
 	}
 
@@ -325,23 +318,23 @@ export class AccountSecurityService {
 function normalizeEmail(value: string): string {
 	const normalized = value.normalize("NFKC").toLocaleLowerCase("en-US");
 	if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-		throw new CoreError("configuration.invalid", "L’adresse électronique est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	return normalized;
 }
 
 function assertPositiveTtl(ttlMs: number): void {
 	if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
-		throw new CoreError("configuration.invalid", "La durée de validité est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
 
 function assertBan(reason: string, expiresAt: Date | undefined, now: Date): void {
 	if (!reason.trim() || reason.length > 2_000) {
-		throw new CoreError("configuration.invalid", "Le motif est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (expiresAt && expiresAt.getTime() <= now.getTime()) {
-		throw new CoreError("configuration.invalid", "La fin du bannissement doit être future.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
 

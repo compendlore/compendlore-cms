@@ -40,12 +40,12 @@ export class InstallationStateService {
 
 	async begin(lockOwner: string, bootstrapVersion: number): Promise<CoreInstallationState> {
 		if (!lockOwner.trim() || !Number.isSafeInteger(bootstrapVersion) || bootstrapVersion <= 0) {
-			throw new CoreError("configuration.invalid", "Le verrou d’installation est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		return this.store.transaction(async () => {
 			const current = await this.store.getInstallationState(this.instanceId);
 			if (current?.lockOwner && current.lockOwner !== lockOwner) {
-				throw new CoreError("lifecycle.invalid_state", "L’installation est déjà verrouillée.");
+				throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 			}
 			const now = this.now();
 			const next: CoreInstallationState = {
@@ -67,7 +67,7 @@ export class InstallationStateService {
 
 	async fail(lockOwner: string, failureCode: string): Promise<CoreInstallationState> {
 		if (!failureCode.trim()) {
-			throw new CoreError("configuration.invalid", "Le code d’échec est obligatoire.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		return this.finish(lockOwner, "failed", failureCode.trim());
 	}
@@ -80,7 +80,7 @@ export class InstallationStateService {
 		return this.store.transaction(async () => {
 			const current = await this.store.getInstallationState(this.instanceId);
 			if (!current || current.status !== "in-progress" || current.lockOwner !== lockOwner) {
-				throw new CoreError("lifecycle.invalid_state", "Le verrou d’installation est invalide.");
+				throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 			}
 			const now = this.now();
 			const next: CoreInstallationState = {
@@ -99,16 +99,16 @@ export class InstallationStateService {
 
 function assertCoreKey(key: string): void {
 	if (!/^core\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(key)) {
-		throw new CoreError("configuration.invalid", "La clé de réglage Core est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
 
 export function validateCoreJsonValue(value: unknown, depth = 0): asserts value is CoreJsonValue {
-	if (depth > 32) throw new CoreError("configuration.invalid", "La valeur JSON est trop profonde.");
+	if (depth > 32) throw new CoreError("configuration.invalid", "Invalid configuration.");
 	if (value === null || typeof value === "boolean" || typeof value === "string") return;
 	if (typeof value === "number") {
 		if (Number.isFinite(value)) return;
-		throw new CoreError("configuration.invalid", "La valeur numérique doit être finie.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (Array.isArray(value)) {
 		for (const item of value) validateCoreJsonValue(item, depth + 1);
@@ -118,5 +118,5 @@ export function validateCoreJsonValue(value: unknown, depth = 0): asserts value 
 		for (const item of Object.values(value)) validateCoreJsonValue(item, depth + 1);
 		return;
 	}
-	throw new CoreError("configuration.invalid", "La valeur doit être du JSON valide.");
+	throw new CoreError("configuration.invalid", "Invalid configuration.");
 }

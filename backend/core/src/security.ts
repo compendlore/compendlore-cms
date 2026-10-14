@@ -30,10 +30,7 @@ export class PasswordHasher {
 
 	async hash(password: string): Promise<string> {
 		if (password.length < 12) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Le mot de passe doit contenir au moins 12 caractères.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const salt = randomBytes(16).toString("hex");
 		const derived = (await scrypt(`${password}\0${this.pepper}`, salt, 64)) as Buffer;
@@ -71,7 +68,10 @@ export class AesGcmSecretCipher implements SecretCipher {
 	open(value: string): string {
 		const [algorithm, initializationVector, authenticationTag, encrypted] = value.split(".");
 		if (algorithm !== "aes-256-gcm" || !initializationVector || !authenticationTag || !encrypted) {
-			throw new CoreError("infrastructure.unavailable", "La donnée protégée est invalide.");
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+			);
 		}
 		try {
 			const decipher = createDecipheriv(
@@ -85,9 +85,13 @@ export class AesGcmSecretCipher implements SecretCipher {
 				decipher.final(),
 			]).toString("utf8");
 		} catch (error) {
-			throw new CoreError("infrastructure.unavailable", "La donnée protégée est illisible.", {
-				cause: error,
-			});
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+				{
+					cause: error,
+				},
+			);
 		}
 	}
 }
@@ -119,12 +123,12 @@ export class AuthenticationService {
 	}): Promise<CoreUser> {
 		const founder = await this.store.transaction(async () => {
 			if ((await this.store.countUsers()) !== 0) {
-				throw new CoreError("authorization.denied", "L'instance possède déjà un compte.");
+				throw new CoreError("authorization.denied", "Access denied.");
 			}
 			if (!(await this.installationTokens.consume(input.installationToken, this.now()))) {
 				throw new CoreError(
 					"installation.token_invalid",
-					"Le jeton d’installation est invalide ou expiré.",
+					"The installation token is invalid or expired.",
 				);
 			}
 			const user: CoreUser = {
@@ -187,7 +191,7 @@ export class AuthenticationService {
 				...(context.address ? { address: context.address } : {}),
 			});
 			await this.audit("security.login", "denied", correlationId);
-			throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.", {
 				cause: error,
 			});
 		}
@@ -203,7 +207,7 @@ export class AuthenticationService {
 					...(context.address ? { address: context.address } : {}),
 				});
 				await this.audit("security.login", "denied", correlationId, user.id);
-				throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.", {
+				throw new CoreError("authentication.invalid_credentials", "Invalid credentials.", {
 					cause: error,
 				});
 			}
@@ -216,7 +220,7 @@ export class AuthenticationService {
 				...(context.address ? { address: context.address } : {}),
 			});
 			await this.audit("security.login", "denied", correlationId, user?.id);
-			throw new CoreError("authentication.invalid_credentials", "Identifiants invalides.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 
 		const token = randomBytes(32).toString("base64url");
@@ -246,12 +250,15 @@ export class AuthenticationService {
 		if (!session || session.revokedAt || session.expiresAt.getTime() <= this.now().getTime()) {
 			throw new CoreError(
 				"authentication.session_expired",
-				"La session est absente, révoquée ou expirée.",
+				"The session is missing, revoked, or expired.",
 			);
 		}
 		const user = await this.store.findUserById(session.userId);
 		if (!user?.active)
-			throw new CoreError("authentication.session_expired", "La session est invalide.");
+			throw new CoreError(
+				"authentication.session_expired",
+				"The session is missing, revoked, or expired.",
+			);
 		await this.accountSecurity.assertAccessAllowed(user.id);
 		return { token, session, user };
 	}
@@ -267,7 +274,7 @@ export class AuthenticationService {
 	async requireCapability(token: string, capability: string): Promise<AuthenticatedSession> {
 		const authenticated = await this.authenticate(token);
 		if (!(await this.store.hasCapability(authenticated.user.id, capability))) {
-			throw new CoreError("authorization.denied", "Cette capacité n'est pas accordée.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		return authenticated;
 	}
@@ -285,13 +292,13 @@ export class AuthenticationService {
 					CORE_CAPABILITIES.administrationAccess,
 				))
 			) {
-				throw new CoreError("authorization.denied", "Cette capacité n'est pas accordée.");
+				throw new CoreError("authorization.denied", "Access denied.");
 			}
 			const verifiedAt = authenticated.session.secondFactorVerifiedAt?.getTime() ?? 0;
 			if (verifiedAt + this.adminSessionTtlMs <= this.now().getTime()) {
 				throw new CoreError(
 					"authentication.two_factor_required",
-					"Une validation 2FA récente est requise.",
+					"Two-factor authentication is required.",
 				);
 			}
 			await this.audit(
@@ -342,7 +349,7 @@ export class TwoFactorService {
 			await this.audit("denied", correlationId, session.userId);
 			throw new CoreError(
 				"authentication.two_factor_required",
-				"Le second facteur n'est pas configuré.",
+				"Two-factor authentication is required.",
 			);
 		}
 		const accepted = verifyTotp(registration.secret, code, this.now());
@@ -351,7 +358,7 @@ export class TwoFactorService {
 			: await this.store.consumeRecoveryCode(session.userId, digest(code));
 		if (!accepted && !recoveryAccepted) {
 			await this.audit("denied", correlationId, session.userId);
-			throw new CoreError("authentication.invalid_credentials", "Code de sécurité invalide.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		await this.store.markSecondFactorVerified(session.id, this.now());
 		await this.audit("allowed", correlationId, session.userId);
@@ -385,7 +392,7 @@ export class CsrfProtection {
 	verify(sessionId: string, token: string): void {
 		const [nonce, signature] = token.split(".");
 		if (!nonce || !signature || !safeEqual(signature, this.signature(sessionId, nonce))) {
-			throw new CoreError("security.csrf_invalid", "Le jeton CSRF est invalide.");
+			throw new CoreError("security.csrf_invalid", "The CSRF token is invalid.");
 		}
 	}
 
@@ -471,7 +478,7 @@ function decodeBase32(value: string): Buffer {
 	let bits = "";
 	for (const character of value.toUpperCase().replaceAll("=", "")) {
 		const index = alphabet.indexOf(character);
-		if (index < 0) throw new CoreError("configuration.invalid", "Secret TOTP invalide.");
+		if (index < 0) throw new CoreError("configuration.invalid", "Invalid configuration.");
 		bits += index.toString(2).padStart(5, "0");
 	}
 	const bytes: number[] = [];

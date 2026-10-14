@@ -15,16 +15,10 @@ export class FrontendNetworkPolicy {
 	register(grant: FrontendNetworkGrant): void {
 		validateDefinition(grant.definition);
 		if (!grant.capabilityGranted) {
-			throw new CoreError(
-				"authorization.denied",
-				`La capacité ${FRONTEND_NETWORK_CAPABILITY} est requise.`,
-			);
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		if (grant.definition.requiresConsent && !grant.consentGranted) {
-			throw new CoreError(
-				"authorization.denied",
-				"Le consentement réseau est requis avant l’activation.",
-			);
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		this.grants.set(grant.definition.ownerIdentifier, grant);
 	}
@@ -35,21 +29,20 @@ export class FrontendNetworkPolicy {
 
 	assertAllowed(ownerIdentifier: string, url: URL, method: ConnectorHttpMethod): void {
 		const grant = this.grants.get(ownerIdentifier);
-		if (!grant)
-			throw new CoreError("network.denied", "Cet accès réseau frontend n’est pas déclaré.");
+		if (!grant) throw new CoreError("network.denied", "Network access denied.");
 		if (
 			url.protocol !== "https:" ||
 			url.username ||
 			url.password ||
 			(url.port && url.port !== "443")
 		) {
-			throw new CoreError("network.denied", "La destination frontend n’est pas sûre.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 		if (!grant.definition.domains.includes(url.hostname.toLowerCase())) {
-			throw new CoreError("network.denied", "Le domaine frontend n’est pas déclaré.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 		if (!grant.definition.methods.includes(method)) {
-			throw new CoreError("network.denied", "La méthode frontend n’est pas déclarée.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 	}
 
@@ -70,17 +63,14 @@ export class FrontendNetworkPolicy {
 
 function validateDefinition(definition: FrontendNetworkDefinition): void {
 	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(definition.ownerIdentifier)) {
-		throw new CoreError("configuration.invalid", "Le propriétaire réseau frontend est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (definition.domains.length === 0 || definition.methods.length === 0) {
-		throw new CoreError(
-			"configuration.invalid",
-			"Les domaines et méthodes frontend sont obligatoires.",
-		);
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	for (const domain of definition.domains) {
 		if (!isPublicDomainName(domain)) {
-			throw new CoreError("network.denied", "Un domaine frontend déclaré est invalide.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 	}
 }

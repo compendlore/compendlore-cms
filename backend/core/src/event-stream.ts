@@ -34,10 +34,7 @@ export class CoreEventStream {
 		private readonly now: () => Date = () => new Date(),
 	) {
 		if (Buffer.byteLength(integritySecret, "utf8") < 32) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La clé d’intégrité des événements est insuffisante.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.integrityKey = createHmac("sha256", integritySecret)
 			.update("compendlore.core.event-stream.v1")
@@ -45,26 +42,20 @@ export class CoreEventStream {
 	}
 
 	async publish(input: PublishCoreEventInput): Promise<CoreEvent> {
-		const ownerIdentifier = validateIdentifier(input.ownerIdentifier, "propriétaire");
+		const ownerIdentifier = validateIdentifier(input.ownerIdentifier, "owner");
 		const topic = validateIdentifier(input.topic, "sujet");
 		if (!Number.isSafeInteger(input.schemaVersion) || input.schemaVersion <= 0) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La version du schéma d’événement est invalide.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const receivedAt = this.now();
 		const occurredAt = input.occurredAt ?? receivedAt;
 		assertValidDate(occurredAt, "La date de l’événement est invalide.");
 		assertValidDate(input.retentionUntil, "La date de conservation est invalide.");
 		if (occurredAt.getTime() > receivedAt.getTime() + MAXIMUM_CLOCK_DRIFT_MS) {
-			throw new CoreError("configuration.invalid", "L’événement est daté trop loin dans le futur.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		if (input.retentionUntil <= receivedAt) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La conservation de l’événement doit être future.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 
 		if (
@@ -73,20 +64,17 @@ export class CoreEventStream {
 			typeof input.payload !== "object" ||
 			Object.getPrototypeOf(input.payload) !== Object.prototype
 		) {
-			throw new CoreError("configuration.invalid", "La charge utile doit être un objet JSON.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		validateCoreJsonValue(input.payload);
 		const serializedPayload = canonicalizeJson(input.payload);
 		if (Buffer.byteLength(serializedPayload, "utf8") > MAXIMUM_PAYLOAD_BYTES) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La charge utile de l’événement est trop grande.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const payload = JSON.parse(serializedPayload) as Readonly<Record<string, CoreJsonValue>>;
 		const idempotencyKey = input.idempotencyKey?.trim();
 		if (idempotencyKey && idempotencyKey.length > 128) {
-			throw new CoreError("configuration.invalid", "La clé d’idempotence est trop longue.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 
 		const unsignedEvent = {
@@ -113,23 +101,17 @@ export class CoreEventStream {
 				stored.schemaVersion !== input.schemaVersion ||
 				JSON.stringify(stored.payload) !== serializedPayload)
 		) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La clé d’idempotence désigne déjà un événement différent.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		return stored;
 	}
 
 	async registerConsumer(input: RegisterCoreEventConsumerInput): Promise<CoreEventConsumer> {
 		const identifier = validateIdentifier(input.identifier, "consommateur");
-		const ownerIdentifier = validateIdentifier(input.ownerIdentifier, "propriétaire");
+		const ownerIdentifier = validateIdentifier(input.ownerIdentifier, "owner");
 		const topics = [...new Set(input.topics.map((topic) => validateIdentifier(topic, "sujet")))];
 		if (topics.length === 0 || topics.length > MAXIMUM_TOPICS_PER_CONSUMER) {
-			throw new CoreError(
-				"configuration.invalid",
-				"La liste des sujets du consommateur est invalide.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const now = this.now();
 		return this.store.registerEventConsumer({
@@ -146,7 +128,7 @@ export class CoreEventStream {
 	async read(consumerIdentifier: string, batchSize = 100): Promise<readonly CoreEvent[]> {
 		validateIdentifier(consumerIdentifier, "consommateur");
 		if (!Number.isSafeInteger(batchSize) || batchSize <= 0 || batchSize > MAXIMUM_BATCH_SIZE) {
-			throw new CoreError("configuration.invalid", "La taille du lot d’événements est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const events = await this.store.readEventsForConsumer(consumerIdentifier, batchSize);
 		for (const event of events) this.assertIntegrity(event);
@@ -156,7 +138,7 @@ export class CoreEventStream {
 	acknowledge(consumerIdentifier: string, sequence: bigint): Promise<void> {
 		validateIdentifier(consumerIdentifier, "consommateur");
 		if (sequence < 0n) {
-			throw new CoreError("configuration.invalid", "Le curseur d’événements est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		return this.store.advanceEventConsumer(consumerIdentifier, sequence, this.now());
 	}
@@ -180,7 +162,7 @@ export class CoreEventStream {
 		) {
 			throw new CoreError(
 				"infrastructure.unavailable",
-				"L’intégrité du flux d’événements ne peut pas être garantie.",
+				"The required infrastructure is unavailable.",
 			);
 		}
 	}
@@ -242,7 +224,7 @@ function safeEqual(left: string, right: string): boolean {
 function validateIdentifier(value: string, label: string): string {
 	const normalized = value.trim().toLowerCase();
 	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(normalized) || normalized.length > 160) {
-		throw new CoreError("configuration.invalid", `L’identifiant de ${label} est invalide.`);
+		throw new CoreError("configuration.invalid", `The ${label} identifier is invalid.`);
 	}
 	return normalized;
 }

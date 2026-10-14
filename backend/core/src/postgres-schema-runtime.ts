@@ -141,7 +141,7 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 				error: "schema.execution_rolled_back",
 			};
 			await this.updateJournal(failed);
-			throw new CoreError("infrastructure.unavailable", "Le plan de schéma a été annulé.", {
+			throw new CoreError("infrastructure.unavailable", "The schema plan was rolled back.", {
 				cause: error,
 				retryable: true,
 			});
@@ -514,10 +514,7 @@ function transformerExpression(transformer: string, column: string): string {
 		case "text.uppercase":
 			return `upper(${column})`;
 		default:
-			throw new CoreError(
-				"configuration.invalid",
-				`Le transformateur ${transformer} est interdit.`,
-			);
+			throw new CoreError("configuration.invalid", `Transformer ${transformer} is forbidden.`);
 	}
 }
 
@@ -557,7 +554,7 @@ function literal(value: CoreJsonValue): string {
 	if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
 	if (typeof value === "number") {
 		if (!Number.isFinite(value))
-			throw new CoreError("configuration.invalid", "Nombre SQL invalide.");
+			throw new CoreError("configuration.invalid", "The SQL number is invalid.");
 		return String(value);
 	}
 	const serialized = typeof value === "string" ? value : JSON.stringify(value);
@@ -571,7 +568,7 @@ function quote(identifier: string): string {
 
 function validateIdentifier(identifier: string): void {
 	if (!/^[a-z][a-z0-9_]{0,62}$/.test(identifier))
-		throw new CoreError("configuration.invalid", "Identifiant SQL interdit.");
+		throw new CoreError("configuration.invalid", "The SQL identifier is forbidden.");
 }
 
 function generatedConstraintName(...parts: readonly string[]): string {
@@ -635,7 +632,7 @@ function mapType(dataType: string, underlyingType: string): SchemaValueType {
 	};
 	const mapped = mapping[dataType];
 	if (!mapped)
-		throw new CoreError("configuration.invalid", `Le type PostgreSQL ${dataType} est inconnu.`);
+		throw new CoreError("configuration.invalid", `PostgreSQL type ${dataType} is unknown.`);
 	return mapped;
 }
 

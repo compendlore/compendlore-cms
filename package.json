@@ -41,11 +41,11 @@
 		"validate:schema-planning": "npm run build --silent && node --test --test-name-pattern=\"prévisualise un plan physique déterministe|SQL arbitraire et les changements destructeurs\" test/schema.test.mjs",
 		"validate:schema-transformations": "npm run build --silent && node --test --test-name-pattern=\"planifie renommage, copie|transformations déclaratives incomplètes|transformation par lots|compile un plan validé en SQL interne\" test/schema.test.mjs",
 		"validate:schema-recovery": "npm run build --silent && node --test --test-name-pattern=\"applique les politiques de retrait|annule atomiquement une mise à jour interrompue\" test/schema.test.mjs",
-		"validate:schema-security": "npm run build --silent && node --test --test-name-pattern=\"lie chaque exécution à une décision Core|SQL arbitraire et les changements destructeurs|transformations déclaratives incomplètes\" test/schema.test.mjs && node scripts/validate-core-schema.mjs ./validate-schema-security.sql",
+		"validate:schema-security": "npm run build --silent && npm run error-diagnostics:check --silent && node --test --test-name-pattern=\"lie chaque exécution à une décision Core|SQL arbitraire et les changements destructeurs|transformations déclaratives incomplètes\" test/schema.test.mjs && node scripts/validate-core-schema.mjs ./validate-schema-security.sql",
 		"validate:phase-5": "npm run ci && node --test --test-name-pattern=\"DSL des tables et ses relations|journalise durablement le propriétaire|prévisualise un plan physique déterministe|planifie renommage, copie|transformations déclaratives incomplètes|transformation par lots|SQL arbitraire et les changements destructeurs|applique les politiques de retrait|annule atomiquement une mise à jour interrompue|compile un plan validé en SQL interne|lie chaque exécution à une décision Core\" test/schema.test.mjs && node scripts/validate-core-schema.mjs ./validate-schema-journal.sql && node scripts/validate-core-schema.mjs ./validate-schema-security.sql",
 		"pretty": "prettier --write .",
 		"pretty:check": "prettier --check .",
-		"lint": "eslint . && npm run markdown:lint",
+		"lint": "eslint . && npm run markdown:lint && npm run error-diagnostics:check",
 		"markdown:lint": "node scripts/check-markdown.mjs",
 		"typecheck": "tsc -b --pretty false",
 		"test": "npm run build --silent && node --test",
@@ -55,7 +55,8 @@
 		"deps:check": "node scripts/check-dependencies.mjs",
 		"layers:check": "node scripts/check-layers.mjs",
 		"audit": "npm audit --audit-level=moderate",
-		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build && npm run bundles:check"
+		"ci": "npm run pretty:check && npm run lint && npm run typecheck && npm run test && npm run deps:check && npm run layers:check && npm run audit && npm run build && npm run bundles:check",
+		"error-diagnostics:check": "node scripts/check-error-diagnostics.mjs"
 	},
 	"overrides": {
 		"katex": "0.18.2"

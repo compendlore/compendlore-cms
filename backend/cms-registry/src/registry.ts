@@ -69,10 +69,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		context: RegistryMutationContext,
 	): Promise<StoredContribution> {
 		if (definition.type !== "method") {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"Un gestionnaire ne peut être lié qu’à une contribution de méthode.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		this.dispatcher.validateHandler(handler);
 		const contribution = await this.register(definition, context);
@@ -102,7 +99,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			if (blockers.length > 0) {
 				throw new RegistryError(
 					"registry.dependency_blocked",
-					`Activation bloquée par : ${blockers.join(", ")}.`,
+					"A registry dependency blocked the operation.",
 				);
 			}
 		});
@@ -113,7 +110,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			if (contribution.owner.kind === "core") {
 				throw new RegistryError(
 					"registry.owner_denied",
-					"Une contribution Core ne peut pas être désactivée.",
+					"The registry owner denied the operation.",
 				);
 			}
 			if (contribution.state !== "active") {
@@ -123,7 +120,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			if (blockers.length > 0) {
 				throw new RegistryError(
 					"registry.withdrawal_blocked",
-					`Désactivation bloquée par : ${blockers.join(", ")}.`,
+					"The registry contribution cannot be withdrawn.",
 				);
 			}
 		});
@@ -138,16 +135,10 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		const existing = await this.require(key);
 		this.assertOwner(existing, context.requester);
 		if (!sameOwner(existing.owner, definition.owner)) {
-			throw new RegistryError(
-				"registry.owner_denied",
-				"Une mise à jour ne peut pas transférer la propriété d’une contribution.",
-			);
+			throw new RegistryError("registry.owner_denied", "The registry owner denied the operation.");
 		}
 		if (compareSemver(definition.version, existing.version) <= 0) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"La version mise à jour doit être supérieure à la version installée.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		return this.mutate(definition, "update", context.actorId, async () => {
 			const now = new Date();
@@ -166,7 +157,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				if (activationBlockers.length > 0) {
 					throw new RegistryError(
 						"registry.dependency_blocked",
-						`Mise à jour bloquée par ses dépendances : ${activationBlockers.join(", ")}.`,
+						"A registry dependency blocked the operation.",
 					);
 				}
 			}
@@ -174,7 +165,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			if (compatibilityBlockers.length > 0) {
 				throw new RegistryError(
 					"registry.dependency_blocked",
-					`Mise à jour incompatible avec : ${compatibilityBlockers.join(", ")}.`,
+					"A registry dependency blocked the operation.",
 				);
 			}
 			const stored: StoredContribution = {
@@ -192,7 +183,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		if (contribution.withdrawalPolicy === "block-uninstall") {
 			throw new RegistryError(
 				"registry.withdrawal_blocked",
-				`La contribution ${key} interdit son retrait.`,
+				"The registry contribution cannot be withdrawn.",
 			);
 		}
 		const withdrawn = await this.changeState(
@@ -207,7 +198,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				if (current.owner.kind === "core") {
 					throw new RegistryError(
 						"registry.owner_denied",
-						"Une contribution Core ne peut pas être retirée.",
+						"The registry owner denied the operation.",
 					);
 				}
 				const blockers = new ContributionGraph(await this.repository.list()).withdrawalBlockers(
@@ -216,7 +207,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				if (blockers.length > 0) {
 					throw new RegistryError(
 						"registry.withdrawal_blocked",
-						`Retrait bloqué par : ${blockers.join(", ")}.`,
+						"The registry contribution cannot be withdrawn.",
 					);
 				}
 			},
@@ -242,10 +233,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		context: RegistryMutationContext,
 	): Promise<StoredContribution> {
 		if (!reason.trim()) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"La cause d’un échec de contribution est obligatoire.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		return this.changeState(
 			key,
@@ -274,7 +262,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		}
 		const desiredKeys = new Set(definitionCounts.keys());
 		for (const [key, count] of definitionCounts) {
-			if (count > 1) failed[key] = "La contribution est déclarée plusieurs fois.";
+			if (count > 1) failed[key] = "The contribution is declared more than once.";
 		}
 
 		for (const definition of definitions) {
@@ -294,12 +282,12 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 					} else if (versionComparison < 0) {
 						throw new RegistryError(
 							"registry.contract_invalid",
-							`La version ${definition.version} ne peut pas remplacer la version installée ${existing.version}.`,
+							`Version ${definition.version} cannot replace installed version ${existing.version}.`,
 						);
 					} else if (stableJson(definitionFromStored(existing)) !== stableJson(definition)) {
 						throw new RegistryError(
 							"registry.collision",
-							"Une définition modifiée doit utiliser une nouvelle version.",
+							"A modified contribution definition must use a new version.",
 						);
 					} else if (["discovered", "withdrawn"].includes(existing.state)) {
 						await this.register(definition, context);
@@ -403,10 +391,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 	): Promise<StoredContribution> {
 		validateContributionDefinition(definition);
 		if (!sameOwner(definition.owner, context.requester)) {
-			throw new RegistryError(
-				"registry.owner_denied",
-				"Une contribution ne peut être créée que par son propriétaire déclaré.",
-			);
+			throw new RegistryError("registry.owner_denied", "The registry owner denied the operation.");
 		}
 		const key = contributionKey(definition.type, definition.identifier);
 		const existing = await this.repository.get(key);
@@ -427,7 +412,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 				}
 				throw new RegistryError(
 					"registry.collision",
-					`La contribution ${existing.key} existe déjà. Utilisez une mise à jour versionnée.`,
+					"A registry contribution collision occurred.",
 				);
 			}
 			if (
@@ -437,7 +422,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			) {
 				throw new RegistryError(
 					"registry.collision",
-					`La contribution ${existing.key} appartient déjà à ${existing.owner.identifier}.`,
+					"A registry contribution collision occurred.",
 				);
 			}
 			return this.mutate(definition, action, context.actorId, async () => {
@@ -521,7 +506,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		if (!contribution) {
 			throw new RegistryError(
 				"registry.dependency_blocked",
-				`La contribution ${key} est introuvable.`,
+				"A registry dependency blocked the operation.",
 			);
 		}
 		return contribution;
@@ -531,7 +516,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		if (!sameOwner(contribution.owner, requester)) {
 			throw new RegistryError(
 				"registry.owner_denied",
-				`Seul ${contribution.owner.identifier} peut modifier ${contribution.key}.`,
+				`Only ${contribution.owner.identifier} can modify ${contribution.key}.`,
 			);
 		}
 	}
@@ -544,7 +529,7 @@ export function createInMemoryCmsRegistry(core: RegistryCorePort): CmsRegistry {
 function invalidState(key: string, from: ContributionState, to: ContributionState): RegistryError {
 	return new RegistryError(
 		"registry.invalid_state",
-		`La contribution ${key} ne peut pas passer de ${from} à ${to}.`,
+		`Contribution ${key} cannot transition from ${from} to ${to}.`,
 	);
 }
 

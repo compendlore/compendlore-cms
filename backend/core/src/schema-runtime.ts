@@ -186,23 +186,23 @@ export class CoreSchemaGateway {
 		if (request.plan.destructive && !request.destructiveApproved) {
 			throw new CoreError(
 				"authorization.denied",
-				"Le plan contient des opérations destructrices non autorisées.",
+				"The schema plan contains unauthorized destructive operations.",
 			);
 		}
 		if (this.inFlightPlanIds.has(request.plan.id)) {
-			throw new CoreError("lifecycle.invalid_state", "Ce plan est déjà en cours d’application.");
+			throw new CoreError("lifecycle.invalid_state", "The schema plan is already being applied.");
 		}
 		this.inFlightPlanIds.add(request.plan.id);
 		try {
 			const history = await this.runtime.history(request.plan.contributionKey);
 			if (history.some((entry) => entry.planIntegrity === request.plan.integrity)) {
-				throw new CoreError("lifecycle.invalid_state", "Ce plan a déjà été appliqué.");
+				throw new CoreError("lifecycle.invalid_state", "The schema plan has already been applied.");
 			}
 			const observed = await this.runtime.inspect(request.plan.resourceName);
 			if (fingerprintSchema(asCoreJson(observed ?? null)) !== request.plan.observedFingerprint) {
 				throw new CoreError(
 					"lifecycle.invalid_state",
-					"L’état physique a changé depuis la planification.",
+					"The physical schema state changed after planning.",
 				);
 			}
 			const decision: SchemaApplicationDecision = {
@@ -265,7 +265,7 @@ export class InMemorySchemaRuntime implements SchemaRuntime {
 					index >= this.failAfterOperations
 				) {
 					this.failuresRemaining -= 1;
-					throw new Error("Interruption simulée du moteur de schéma.");
+					throw new Error("Simulated schema engine interruption.");
 				}
 				this.applyOperation(operation);
 			}
@@ -286,7 +286,7 @@ export class InMemorySchemaRuntime implements SchemaRuntime {
 				error: "schema.execution_rolled_back",
 			};
 			this.entries[this.entries.length - 1] = failed;
-			throw new CoreError("infrastructure.unavailable", "Le plan de schéma a été annulé.", {
+			throw new CoreError("infrastructure.unavailable", "The schema plan was rolled back.", {
 				cause: error,
 				retryable: true,
 			});
@@ -389,7 +389,7 @@ export class InMemorySchemaRuntime implements SchemaRuntime {
 
 	private requireTable(name: string): PhysicalTableState {
 		const table = this.tables.get(name);
-		if (!table) throw new Error(`La table ${name} est absente.`);
+		if (!table) throw new Error(`Table ${name} does not exist.`);
 		return table;
 	}
 
@@ -421,57 +421,57 @@ export function validateSchemaExecution(
 
 function validatePlan(plan: SchemaPlan): void {
 	if (!isRecord(plan)) {
-		throw new CoreError("configuration.invalid", "Le plan de schéma est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan is invalid.");
 	}
 	validateUuid(plan.id, "plan");
 	validateRegistryKey(plan.contributionKey);
 	validateRegistryKey(plan.ownerIdentifier);
 	validateSqlIdentifier(plan.resourceName);
 	if (!new Set(["addon", "core", "instance", "native-module"]).has(plan.ownerKind)) {
-		throw new CoreError("configuration.invalid", "Le propriétaire du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan owner is invalid.");
 	}
 	if (typeof plan.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(plan.fingerprint)) {
-		throw new CoreError("configuration.invalid", "L’empreinte du schéma est invalide.");
+		throw new CoreError("configuration.invalid", "The schema fingerprint is invalid.");
 	}
 	if (
 		typeof plan.observedFingerprint !== "string" ||
 		!/^[a-f0-9]{64}$/.test(plan.observedFingerprint)
 	) {
-		throw new CoreError("configuration.invalid", "L’empreinte physique du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The physical schema fingerprint is invalid.");
 	}
 	if (
 		typeof plan.version !== "string" ||
 		!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(plan.version)
 	) {
-		throw new CoreError("configuration.invalid", "La version du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan version is invalid.");
 	}
 	if (!Array.isArray(plan.operations) || plan.operations.length > 10_000) {
-		throw new CoreError("configuration.invalid", "Le plan contient trop d’opérations.");
+		throw new CoreError("configuration.invalid", "The schema plan contains too many operations.");
 	}
 	if (!(plan.generatedAt instanceof Date) || Number.isNaN(plan.generatedAt.getTime())) {
-		throw new CoreError("configuration.invalid", "La date du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan date is invalid.");
 	}
 	if (typeof plan.destructive !== "boolean") {
-		throw new CoreError("configuration.invalid", "Le niveau de risque du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan risk flag is invalid.");
 	}
 	if (!new Set(["absent", "active", "archived", "preserved"]).has(plan.desiredState)) {
-		throw new CoreError("configuration.invalid", "L’état demandé du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The requested schema plan state is invalid.");
 	}
 	for (const operation of plan.operations) validateOperation(operation);
 	const destructive = plan.operations.some((operation) =>
 		["drop-column", "drop-table", "alter-column", "replace-primary-key"].includes(operation.kind),
 	);
 	if (destructive !== plan.destructive) {
-		throw new CoreError("configuration.invalid", "Le niveau de risque du plan est incohérent.");
+		throw new CoreError("configuration.invalid", "The schema plan risk flag is inconsistent.");
 	}
 	let expectedIntegrity: string;
 	try {
 		expectedIntegrity = schemaPlanIntegrity(plan);
 	} catch {
-		throw new CoreError("configuration.invalid", "Le contenu du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan content is invalid.");
 	}
 	if (typeof plan.integrity !== "string" || plan.integrity !== expectedIntegrity) {
-		throw new CoreError("configuration.invalid", "La preuve d’intégrité du plan est invalide.");
+		throw new CoreError("configuration.invalid", "The schema plan integrity proof is invalid.");
 	}
 }
 
@@ -484,19 +484,19 @@ function validateDecision(plan: SchemaPlan, decision: SchemaApplicationDecision)
 		!(decision.issuedAt instanceof Date) ||
 		Number.isNaN(decision.issuedAt.getTime())
 	) {
-		throw new CoreError("authorization.denied", "La décision Core du plan est invalide.");
+		throw new CoreError("authorization.denied", "The Core schema decision is invalid.");
 	}
-	validateUuid(decision.id, "décision");
+	validateUuid(decision.id, "decision");
 }
 
 function validateOperation(operation: SchemaPlanOperation): void {
 	if (!isRecord(operation) || typeof operation.kind !== "string") {
-		throw new CoreError("configuration.invalid", "Une opération de schéma est invalide.");
+		throw new CoreError("configuration.invalid", "A schema operation is invalid.");
 	}
 	if ("table" in operation) {
 		if (typeof operation.table === "string") validateSqlIdentifier(operation.table);
 		else if (isRecord(operation.table)) validateSqlIdentifier(operation.table.name);
-		else throw new CoreError("configuration.invalid", "La table de l’opération est invalide.");
+		else throw new CoreError("configuration.invalid", "The schema operation table is invalid.");
 	}
 	switch (operation.kind) {
 		case "create-table":
@@ -507,7 +507,7 @@ function validateOperation(operation: SchemaPlanOperation): void {
 				!Array.isArray(operation.table.foreignKeys) ||
 				typeof operation.table.archived !== "boolean"
 			) {
-				throw new CoreError("configuration.invalid", "La création de table est invalide.");
+				throw new CoreError("configuration.invalid", "The table creation operation is invalid.");
 			}
 			operation.table.columns.forEach(validatePhysicalColumn);
 			operation.table.indexes.forEach(validatePhysicalIndex);
@@ -531,7 +531,7 @@ function validateOperation(operation: SchemaPlanOperation): void {
 			return;
 		case "replace-primary-key":
 			if (!Array.isArray(operation.columns)) {
-				throw new CoreError("configuration.invalid", "La clé primaire est invalide.");
+				throw new CoreError("configuration.invalid", "The primary key is invalid.");
 			}
 			operation.columns.forEach(validateSqlIdentifier);
 			return;
@@ -561,12 +561,12 @@ function validateOperation(operation: SchemaPlanOperation): void {
 			validateSqlIdentifier(operation.column);
 			validateBatchSize(operation.batchSize);
 			if (!safeTransformers.has(operation.transformer)) {
-				throw new CoreError("configuration.invalid", "Le transformateur est interdit.");
+				throw new CoreError("configuration.invalid", "The transformer is forbidden.");
 			}
 			return;
 		case "merge-columns":
 			if (!Array.isArray(operation.sources) || operation.sources.length < 2) {
-				throw new CoreError("configuration.invalid", "La fusion de colonnes est invalide.");
+				throw new CoreError("configuration.invalid", "The column merge operation is invalid.");
 			}
 			operation.sources.forEach(validateSqlIdentifier);
 			validateSqlIdentifier(operation.target);
@@ -575,7 +575,7 @@ function validateOperation(operation: SchemaPlanOperation): void {
 			return;
 		case "split-column":
 			if (!Array.isArray(operation.targets) || operation.targets.length < 2) {
-				throw new CoreError("configuration.invalid", "La séparation de colonnes est invalide.");
+				throw new CoreError("configuration.invalid", "The column split operation is invalid.");
 			}
 			validateSqlIdentifier(operation.source);
 			operation.targets.forEach(validateSqlIdentifier);
@@ -583,7 +583,7 @@ function validateOperation(operation: SchemaPlanOperation): void {
 			validateBatchSize(operation.batchSize);
 			return;
 		default:
-			throw new CoreError("configuration.invalid", "Le type d’opération est interdit.");
+			throw new CoreError("configuration.invalid", "The schema operation type is forbidden.");
 	}
 }
 
@@ -600,21 +600,21 @@ const safeTransformers = new Set([
 
 function validatePhysicalColumn(column: PhysicalColumn): void {
 	if (!isRecord(column)) {
-		throw new CoreError("configuration.invalid", "La colonne physique est invalide.");
+		throw new CoreError("configuration.invalid", "The physical column is invalid.");
 	}
 	validateSqlIdentifier(column.name);
 	if (!safeTypes.has(column.type)) {
-		throw new CoreError("configuration.invalid", "Le type de colonne est interdit.");
+		throw new CoreError("configuration.invalid", "The column type is forbidden.");
 	}
 	if (column.type === "varchar" && (!column.length || column.length > 10_000)) {
-		throw new CoreError("configuration.invalid", "La longueur de colonne est invalide.");
+		throw new CoreError("configuration.invalid", "The column length is invalid.");
 	}
 	if (column.type === "decimal" && (!column.precision || (column.scale ?? 0) > column.precision)) {
-		throw new CoreError("configuration.invalid", "La précision de colonne est invalide.");
+		throw new CoreError("configuration.invalid", "The column precision is invalid.");
 	}
 	for (const value of [column.nullable, column.unique, column.primary]) {
 		if (typeof value !== "boolean") {
-			throw new CoreError("configuration.invalid", "Les attributs de colonne sont invalides.");
+			throw new CoreError("configuration.invalid", "The column attributes are invalid.");
 		}
 	}
 	if (column.defaultValue !== undefined) {
@@ -622,7 +622,7 @@ function validatePhysicalColumn(column: PhysicalColumn): void {
 			!isRecord(column.defaultValue) ||
 			!new Set(["literal", "now", "uuid"]).has(column.defaultValue.kind)
 		) {
-			throw new CoreError("configuration.invalid", "La valeur par défaut est invalide.");
+			throw new CoreError("configuration.invalid", "The column default value is invalid.");
 		}
 		if (column.defaultValue.kind === "literal") assertJson(column.defaultValue.value);
 	}
@@ -630,11 +630,11 @@ function validatePhysicalColumn(column: PhysicalColumn): void {
 
 function validatePhysicalIndex(index: PhysicalIndex): void {
 	if (!isRecord(index) || !Array.isArray(index.columns) || typeof index.unique !== "boolean") {
-		throw new CoreError("configuration.invalid", "L’index physique est invalide.");
+		throw new CoreError("configuration.invalid", "The physical index is invalid.");
 	}
 	validateSqlIdentifier(index.name);
 	if (index.columns.length === 0) {
-		throw new CoreError("configuration.invalid", "Un index vide est interdit.");
+		throw new CoreError("configuration.invalid", "An empty index is forbidden.");
 	}
 	index.columns.forEach(validateSqlIdentifier);
 }
@@ -646,7 +646,7 @@ function validatePhysicalForeignKey(foreignKey: PhysicalForeignKey): void {
 		!Array.isArray(foreignKey.targetColumns) ||
 		!new Set(["cascade", "restrict", "set-null"]).has(foreignKey.onDelete)
 	) {
-		throw new CoreError("configuration.invalid", "La relation physique est invalide.");
+		throw new CoreError("configuration.invalid", "The physical relationship is invalid.");
 	}
 	validateSqlIdentifier(foreignKey.name);
 	validateSqlIdentifier(foreignKey.targetTable);
@@ -656,19 +656,19 @@ function validatePhysicalForeignKey(foreignKey: PhysicalForeignKey): void {
 		foreignKey.columns.length === 0 ||
 		foreignKey.columns.length !== foreignKey.targetColumns.length
 	) {
-		throw new CoreError("configuration.invalid", "La relation est invalide.");
+		throw new CoreError("configuration.invalid", "The relationship is invalid.");
 	}
 }
 
 function validateBatchSize(value: number): void {
 	if (!Number.isInteger(value) || value < 1 || value > 100_000) {
-		throw new CoreError("configuration.invalid", "La taille de lot est invalide.");
+		throw new CoreError("configuration.invalid", "The batch size is invalid.");
 	}
 }
 
 function validateSeparator(value: unknown, optional: boolean): void {
 	if (typeof value !== "string" || (!optional && value.length === 0) || value.length > 256) {
-		throw new CoreError("configuration.invalid", "Le séparateur est invalide.");
+		throw new CoreError("configuration.invalid", "The separator is invalid.");
 	}
 }
 
@@ -677,13 +677,13 @@ function assertJson(value: unknown): void {
 		const serialized = JSON.stringify(value);
 		if (serialized === undefined || serialized.length > 1_048_576) throw new Error("invalid");
 	} catch {
-		throw new CoreError("configuration.invalid", "La valeur déclarative est invalide.");
+		throw new CoreError("configuration.invalid", "The declarative value is invalid.");
 	}
 }
 
 function validateSqlIdentifier(value: unknown): asserts value is string {
 	if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,62}$/.test(value)) {
-		throw new CoreError("configuration.invalid", "Un identifiant SQL est invalide.");
+		throw new CoreError("configuration.invalid", "A SQL identifier is invalid.");
 	}
 }
 
@@ -693,7 +693,7 @@ function validateRegistryKey(value: unknown): asserts value is string {
 		!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value) ||
 		value.length > 160
 	) {
-		throw new CoreError("configuration.invalid", "L’identifiant de registre est invalide.");
+		throw new CoreError("configuration.invalid", "The registry identifier is invalid.");
 	}
 }
 
@@ -702,7 +702,7 @@ function validateUuid(value: unknown, label: string): asserts value is string {
 		typeof value !== "string" ||
 		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 	) {
-		throw new CoreError("configuration.invalid", `L’identifiant de ${label} est invalide.`);
+		throw new CoreError("configuration.invalid", `The ${label} identifier is invalid.`);
 	}
 }
 

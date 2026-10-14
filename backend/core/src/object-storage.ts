@@ -16,9 +16,13 @@ export class ManagedObjectStorage implements ObjectStorage, ManagedCoreService {
 
 	async start(): Promise<void> {
 		if ((await this.health()) !== "healthy") {
-			throw new CoreError("infrastructure.unavailable", "Le stockage objet est indisponible.", {
-				retryable: true,
-			});
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+				{
+					retryable: true,
+				},
+			);
 		}
 	}
 
@@ -66,13 +70,17 @@ export class ManagedObjectStorage implements ObjectStorage, ManagedCoreService {
 
 export function validateObjectContentType(contentType: string): void {
 	if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(contentType)) {
-		throw new CoreError("configuration.invalid", "Le type de contenu est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
 
 export function objectStorageUnavailable(cause: unknown): CoreError {
-	return new CoreError("infrastructure.unavailable", "Le stockage objet est indisponible.", {
-		cause,
-		retryable: true,
-	});
+	return new CoreError(
+		"infrastructure.unavailable",
+		"The required infrastructure is unavailable.",
+		{
+			cause,
+			retryable: true,
+		},
+	);
 }

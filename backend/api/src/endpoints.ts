@@ -8,7 +8,7 @@ let configuredGateway: ApiGateway | undefined;
 
 export function configureApiGateway(gateway: ApiGateway): void {
 	if (configuredGateway && configuredGateway !== gateway) {
-		throw new Error("La passerelle API est déjà configurée.");
+		throw new Error("An internal operation failed.");
 	}
 	configuredGateway = gateway;
 }
@@ -103,9 +103,9 @@ function parseGatewayPath(
 	audience: ApiAudience,
 ): { readonly version: string; readonly route: string } {
 	const prefix = audience === "internal" ? "/internal/" : `/api/${audience}/`;
-	if (!pathname.startsWith(prefix)) throw new Error("Préfixe invalide.");
+	if (!pathname.startsWith(prefix)) throw new Error("An internal operation failed.");
 	const [version, ...segments] = pathname.slice(prefix.length).split("/");
-	if (!version || segments.length === 0) throw new Error("Route incomplète.");
+	if (!version || segments.length === 0) throw new Error("An internal operation failed.");
 	return {
 		version: decodeURIComponent(version),
 		route: `/${segments.map(decodeURIComponent).join("/")}`,
@@ -122,7 +122,7 @@ function normalizeMethod(method: string | undefined): ApiHttpMethod {
 	) {
 		return method;
 	}
-	throw new Error("Méthode HTTP non prise en charge.");
+	throw new Error("An internal operation failed.");
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

@@ -78,6 +78,8 @@ until the release manager assigns a version and publication date.
 - Prevented declarative schema contributions from supplying arbitrary SQL, unregistered
   transformations, unsafe identifiers, forged execution decisions, or altered plans.
 - Prevented the pull-request artifact step from archiving its own output file.
+- Standardized all backend exceptions on stable error codes and English internal diagnostics so
+  frontend translations never depend on backend exception text.
 
 ### Release notes
 

@@ -37,6 +37,7 @@ export class CoreError extends Error {
 
 export interface PublicCoreError {
 	readonly code: CoreErrorCode;
+	readonly messageKey: CoreErrorCode;
 	readonly message: string;
 	readonly retryable: boolean;
 	readonly correlationId: string;
@@ -46,6 +47,7 @@ export function normalizeError(error: unknown, correlationId: string): PublicCor
 	if (error instanceof CoreError) {
 		return {
 			code: error.code,
+			messageKey: error.code,
 			message: error.message,
 			retryable: error.retryable,
 			correlationId,
@@ -54,7 +56,8 @@ export function normalizeError(error: unknown, correlationId: string): PublicCor
 
 	return {
 		code: "infrastructure.unavailable",
-		message: "Une erreur interne est survenue.",
+		messageKey: "infrastructure.unavailable",
+		message: "An internal error occurred.",
 		retryable: false,
 		correlationId,
 	};

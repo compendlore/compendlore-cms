@@ -378,10 +378,7 @@ export class InMemoryCoreStore implements CoreStore {
 	async setInstanceIdentity(identity: CoreInstanceIdentity): Promise<void> {
 		const existing = this.state.instanceIdentities.get(identity.instanceId);
 		if (existing && !sameInstanceIdentity(existing, identity)) {
-			throw new CoreError(
-				"lifecycle.invalid_state",
-				"L’identité cryptographique de l’instance ne peut pas être remplacée implicitement.",
-			);
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		this.state.instanceIdentities.set(identity.instanceId, cloneInstanceIdentity(identity));
 	}
@@ -419,7 +416,7 @@ export class InMemoryCoreStore implements CoreStore {
 	async upsertEmailAddress(email: CoreEmailAddress): Promise<void> {
 		for (const candidate of this.state.emailAddresses.values()) {
 			if (candidate.normalizedEmail === email.normalizedEmail && candidate.id !== email.id) {
-				throw new CoreError("configuration.invalid", "Cette adresse électronique existe déjà.");
+				throw new CoreError("configuration.invalid", "Invalid configuration.");
 			}
 		}
 		if (email.primary) {
@@ -450,7 +447,7 @@ export class InMemoryCoreStore implements CoreStore {
 				(candidate) => candidate.tokenDigest === token.tokenDigest,
 			)
 		) {
-			throw new CoreError("configuration.invalid", "Ce jeton de sécurité existe déjà.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.state.securityTokens.set(token.id, token);
 	}
@@ -478,7 +475,7 @@ export class InMemoryCoreStore implements CoreStore {
 				(candidate) => bytesKey(candidate.credentialId) === credential,
 			)
 		) {
-			throw new CoreError("configuration.invalid", "Cette passkey existe déjà.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.state.passkeys.set(passkey.id, clonePasskey(passkey));
 	}
@@ -492,7 +489,7 @@ export class InMemoryCoreStore implements CoreStore {
 	async updatePasskeyUsage(passkeyId: string, signCount: number, lastUsedAt: Date): Promise<void> {
 		const passkey = this.state.passkeys.get(passkeyId);
 		if (!passkey || signCount <= passkey.signCount) {
-			throw new CoreError("authentication.invalid_credentials", "La passkey est invalide.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		this.state.passkeys.set(passkeyId, { ...passkey, signCount, lastUsedAt });
 	}
@@ -508,7 +505,7 @@ export class InMemoryCoreStore implements CoreStore {
 				(candidate) => candidate.challengeDigest === challenge.challengeDigest,
 			)
 		) {
-			throw new CoreError("configuration.invalid", "Ce défi WebAuthn existe déjà.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.state.webauthnChallenges.set(challenge.id, challenge);
 	}
@@ -647,7 +644,7 @@ export class InMemoryCoreStore implements CoreStore {
 
 	async createUser(user: CoreUser): Promise<void> {
 		if ([...this.state.users.values()].some((candidate) => candidate.login === user.login)) {
-			throw new CoreError("configuration.invalid", "Cet identifiant existe déjà.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.state.users.set(user.id, user);
 	}
@@ -664,7 +661,7 @@ export class InMemoryCoreStore implements CoreStore {
 		const user = this.state.users.get(userId);
 		if (!user) return;
 		if (user.founder && !active) {
-			throw new CoreError("authorization.founder_protected", "Le compte fondateur est protégé.");
+			throw new CoreError("authorization.founder_protected", "The founder account is protected.");
 		}
 		this.state.users.set(userId, { ...user, active });
 	}
@@ -677,10 +674,7 @@ export class InMemoryCoreStore implements CoreStore {
 
 	async declareCapabilityImplication(capability: string, impliedCapability: string): Promise<void> {
 		if (capability === impliedCapability || this.capabilityImplies(impliedCapability, capability)) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Une implication de capacité ne peut pas créer de cycle.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const implications = this.state.capabilityImplications.get(capability) ?? new Set<string>();
 		implications.add(impliedCapability);
@@ -691,14 +685,14 @@ export class InMemoryCoreStore implements CoreStore {
 		if (
 			[...this.state.roles.values()].some((candidate) => candidate.identifier === role.identifier)
 		) {
-			throw new CoreError("configuration.invalid", "Ce rôle existe déjà.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		this.state.roles.set(role.id, role);
 	}
 
 	async grantRoleCapability(roleId: string, capability: string): Promise<void> {
 		if (!this.state.roles.has(roleId))
-			throw new CoreError("configuration.invalid", "Rôle inconnu.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		const capabilities = this.state.roleCapabilities.get(roleId) ?? new Set<string>();
 		capabilities.add(capability);
 		this.state.roleCapabilities.set(roleId, capabilities);
@@ -710,17 +704,14 @@ export class InMemoryCoreStore implements CoreStore {
 			!this.state.roles.has(firstRoleId) ||
 			!this.state.roles.has(secondRoleId)
 		) {
-			throw new CoreError("configuration.invalid", "Les rôles incompatibles sont invalides.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		if (
 			[...this.state.userRoles.values()].some(
 				(roles) => roles.has(firstRoleId) && roles.has(secondRoleId),
 			)
 		) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Ces rôles sont déjà affectés ensemble à un utilisateur.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		for (const [roleId, incompatibleRoleId] of [
 			[firstRoleId, secondRoleId],
@@ -734,7 +725,7 @@ export class InMemoryCoreStore implements CoreStore {
 
 	async assignRole(userId: string, roleId: string): Promise<void> {
 		if (!this.state.users.has(userId) || !this.state.roles.has(roleId)) {
-			throw new CoreError("configuration.invalid", "Utilisateur ou rôle inconnu.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const roles = this.state.userRoles.get(userId) ?? new Set<string>();
 		if (
@@ -742,10 +733,7 @@ export class InMemoryCoreStore implements CoreStore {
 				this.state.roleIncompatibilities.get(roleId)?.has(assignedRoleId),
 			)
 		) {
-			throw new CoreError(
-				"authorization.denied",
-				"Ce rôle est incompatible avec un rôle existant.",
-			);
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		roles.add(roleId);
 		this.state.userRoles.set(userId, roles);
@@ -826,7 +814,7 @@ export class InMemoryCoreStore implements CoreStore {
 	async registerEventConsumer(consumer: CoreEventConsumer): Promise<CoreEventConsumer> {
 		const existing = this.state.eventConsumers.get(consumer.identifier);
 		if (existing && existing.ownerIdentifier !== consumer.ownerIdentifier) {
-			throw new CoreError("authorization.denied", "Le consommateur appartient à un autre module.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		const stored = existing
 			? {
@@ -859,7 +847,7 @@ export class InMemoryCoreStore implements CoreStore {
 	async advanceEventConsumer(identifier: string, sequence: bigint, updatedAt: Date): Promise<void> {
 		const consumer = this.state.eventConsumers.get(identifier);
 		if (!consumer?.active || sequence < consumer.lastSequence) {
-			throw new CoreError("lifecycle.invalid_state", "Le curseur du consommateur est invalide.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		if (
 			sequence !== consumer.lastSequence &&
@@ -867,7 +855,7 @@ export class InMemoryCoreStore implements CoreStore {
 				(event) => event.sequence === sequence && consumer.topics.includes(event.topic),
 			)
 		) {
-			throw new CoreError("lifecycle.invalid_state", "L’événement acquitté est invalide.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		this.state.eventConsumers.set(identifier, { ...consumer, lastSequence: sequence, updatedAt });
 	}
@@ -879,7 +867,7 @@ export class InMemoryCoreStore implements CoreStore {
 	): Promise<void> {
 		const consumer = this.state.eventConsumers.get(identifier);
 		if (!consumer) {
-			throw new CoreError("lifecycle.invalid_state", "Le consommateur d’événements est inconnu.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		this.state.eventConsumers.set(identifier, { ...consumer, active, updatedAt });
 	}

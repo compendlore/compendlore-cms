@@ -24,34 +24,34 @@ const positiveInteger = (value: string | undefined, fallback: number, key: strin
 	if (value === undefined) return fallback;
 	const parsed = Number(value);
 	if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-		throw new CoreError("configuration.invalid", `${key} doit être un entier positif.`);
+		throw new CoreError("configuration.invalid", `${key} must be a positive integer.`);
 	}
 	return parsed;
 };
 
 const required = (environment: NodeJS.ProcessEnv, key: string): string => {
 	const value = environment[key]?.trim();
-	if (!value) throw new CoreError("configuration.invalid", `${key} est obligatoire.`);
+	if (!value) throw new CoreError("configuration.invalid", "Invalid configuration.");
 	return value;
 };
 
 export function loadCoreConfig(environment: NodeJS.ProcessEnv): CoreConfig {
 	const mode = environment.CORE_ENVIRONMENT ?? "production";
 	if (!(["development", "test", "production"] as const).includes(mode as CoreEnvironment)) {
-		throw new CoreError("configuration.invalid", "CORE_ENVIRONMENT est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 
 	let publicOrigin: URL;
 	try {
 		publicOrigin = new URL(required(environment, "CORE_PUBLIC_ORIGIN"));
 	} catch (error) {
-		throw new CoreError("configuration.invalid", "CORE_PUBLIC_ORIGIN doit être une URL valide.", {
+		throw new CoreError("configuration.invalid", "Invalid configuration.", {
 			cause: error,
 		});
 	}
 
 	if (mode === "production" && publicOrigin.protocol !== "https:") {
-		throw new CoreError("configuration.invalid", "HTTPS est obligatoire en production.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 
 	const passwordPepperSecretRef = required(environment, "CORE_PASSWORD_PEPPER_SECRET_REF");

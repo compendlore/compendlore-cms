@@ -41,7 +41,7 @@ export class AdministrationBundleDelivery {
 			throw new AdministrationAssetAccessError(
 				"administration.asset_not_found",
 				404,
-				"La ressource administrative est introuvable.",
+				"Administration asset not found.",
 			);
 		return asset;
 	}
@@ -51,16 +51,12 @@ export function assertAdministrationAccess(
 	identity: AdministrationAssetIdentity | undefined,
 ): asserts identity is AdministrationAssetIdentity {
 	if (!identity?.isAdministrator)
-		throw new AdministrationAssetAccessError(
-			"authorization.denied",
-			403,
-			"L’accès à l’administration est refusé.",
-		);
+		throw new AdministrationAssetAccessError("authorization.denied", 403, "Access denied.");
 	if (!identity.secondFactorVerified)
 		throw new AdministrationAssetAccessError(
 			"administration.second_factor_required",
 			401,
-			"Le second facteur administratif doit être validé.",
+			"Administration second factor required.",
 		);
 }
 
@@ -73,7 +69,7 @@ export function normalizeAdministrationAssetPath(requestedPath: string): string 
 		throw new AdministrationAssetAccessError(
 			"administration.asset_not_found",
 			404,
-			"La ressource administrative est introuvable.",
+			"Administration asset not found.",
 		);
 	}
 	return path;

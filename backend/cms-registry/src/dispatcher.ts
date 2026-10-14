@@ -37,10 +37,7 @@ export class RegistryMethodDispatcher {
 			typeof handler.validateOutput !== "function" ||
 			typeof handler.execute !== "function"
 		) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"Un gestionnaire de méthode doit déclarer ses validateurs d’entrée et de sortie ainsi que son exécution.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 	}
 
@@ -48,10 +45,7 @@ export class RegistryMethodDispatcher {
 		this.validateHandler(handler);
 		const key = contributionKey("method", methodIdentifier);
 		if (this.handlers.has(key)) {
-			throw new RegistryError(
-				"registry.collision",
-				`Un gestionnaire est déjà lié à ${methodIdentifier}.`,
-			);
+			throw new RegistryError("registry.collision", "A registry contribution collision occurred.");
 		}
 		this.handlers.set(key, handler);
 	}
@@ -65,17 +59,11 @@ export class RegistryMethodDispatcher {
 		const contribution = await this.repository.get(key);
 		const contract = contribution?.method;
 		if (!contribution || !contract || contribution.state !== "active") {
-			throw new RegistryError(
-				"registry.method_not_found",
-				`La méthode ${invocation.methodIdentifier} n’est pas disponible.`,
-			);
+			throw new RegistryError("registry.method_not_found", "The registered method was not found.");
 		}
 		const handler = this.handlers.get(key);
 		if (!handler) {
-			throw new RegistryError(
-				"registry.method_not_found",
-				`La méthode ${invocation.methodIdentifier} ne possède aucun gestionnaire actif.`,
-			);
+			throw new RegistryError("registry.method_not_found", "The registered method was not found.");
 		}
 		const authorized = await this.core.authorizeMethodInvocation({
 			contributionKey: key,
@@ -86,34 +74,23 @@ export class RegistryMethodDispatcher {
 			if (contract.requiredCapability && !invocation.actorId) {
 				throw new RegistryError(
 					"registry.capability_denied",
-					"Cette méthode exige un utilisateur authentifié.",
+					"The required capability was denied.",
 				);
 			}
-			throw new RegistryError(
-				"registry.capability_denied",
-				contract.requiredCapability
-					? `La capacité ${contract.requiredCapability} est requise.`
-					: "Le Core a refusé l’exécution de cette méthode.",
-			);
+			throw new RegistryError("registry.capability_denied", "The required capability was denied.");
 		}
 		if (
 			!this.validateValue(
 				handler.validateInput,
 				invocation.input,
 				invocation.methodIdentifier,
-				"entrée",
+				"input",
 			)
 		) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				`L’entrée de ${invocation.methodIdentifier} ne respecte pas son contrat.`,
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		if (!contract.idempotent && invocation.idempotencyKey) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"Une clé d’idempotence ne peut cibler qu’une méthode idempotente.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		const cacheKey = invocation.idempotencyKey
 			? `${key}:${invocation.actorId ?? "system"}:${invocation.idempotencyKey}`
@@ -122,10 +99,7 @@ export class RegistryMethodDispatcher {
 		const cached = cacheKey ? this.idempotentResults.get(cacheKey) : undefined;
 		if (cached) {
 			if (cached.inputFingerprint !== inputFingerprint) {
-				throw new RegistryError(
-					"registry.contract_invalid",
-					"Une clé d’idempotence ne peut pas être réutilisée avec une entrée différente.",
-				);
+				throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 			}
 			return cached.result;
 		}
@@ -154,10 +128,7 @@ export class RegistryMethodDispatcher {
 	): Promise<unknown> {
 		const controller = new AbortController();
 		const timeoutError = () =>
-			new RegistryError(
-				"registry.method_timeout",
-				`La méthode ${invocation.methodIdentifier} a dépassé son délai.`,
-			);
+			new RegistryError("registry.method_timeout", "The registered method timed out.");
 		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const timeoutPromise = new Promise<never>((_, reject) => {
 			timeout = setTimeout(() => {
@@ -178,21 +149,16 @@ export class RegistryMethodDispatcher {
 				);
 				if (controller.signal.aborted) throw timeoutError();
 				if (
-					!this.validateValue(handler.validateOutput, output, invocation.methodIdentifier, "sortie")
+					!this.validateValue(handler.validateOutput, output, invocation.methodIdentifier, "output")
 				) {
-					throw new RegistryError(
-						"registry.contract_invalid",
-						`La sortie de ${invocation.methodIdentifier} ne respecte pas son contrat.`,
-					);
+					throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 				}
 				return output;
 			} catch (error) {
 				if (error instanceof RegistryError) throw error;
-				throw new RegistryError(
-					"registry.method_failed",
-					`L’exécution de ${invocation.methodIdentifier} a échoué.`,
-					{ cause: error },
-				);
+				throw new RegistryError("registry.method_failed", "The registered method failed.", {
+					cause: error,
+				});
 			}
 		};
 		try {
@@ -210,15 +176,17 @@ export class RegistryMethodDispatcher {
 		validator: (value: unknown) => boolean,
 		value: unknown,
 		methodIdentifier: string,
-		contractPart: "entrée" | "sortie",
+		contractPart: "input" | "output",
 	): boolean {
 		try {
 			return validator(value);
 		} catch (error) {
 			throw new RegistryError(
 				"registry.contract_invalid",
-				`Le validateur de ${contractPart} de ${methodIdentifier} a échoué.`,
-				{ cause: error },
+				`The ${contractPart} validator for ${methodIdentifier} failed.`,
+				{
+					cause: error,
+				},
 			);
 		}
 	}
@@ -235,11 +203,9 @@ function fingerprintInput(input: unknown): string {
 		return createHash("sha256").update(canonicalize(input, new Set())).digest("hex");
 	} catch (error) {
 		if (error instanceof RegistryError) throw error;
-		throw new RegistryError(
-			"registry.contract_invalid",
-			"L’entrée associée à une clé d’idempotence doit être sérialisable.",
-			{ cause: error },
-		);
+		throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.", {
+			cause: error,
+		});
 	}
 }
 
@@ -252,16 +218,10 @@ function canonicalize(value: unknown, ancestors: Set<object>): string {
 		return `number:${Object.is(value, -0) ? "-0" : String(value)}`;
 	}
 	if (typeof value !== "object") {
-		throw new RegistryError(
-			"registry.contract_invalid",
-			"L’entrée associée à une clé d’idempotence contient une valeur non sérialisable.",
-		);
+		throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 	}
 	if (ancestors.has(value)) {
-		throw new RegistryError(
-			"registry.contract_invalid",
-			"L’entrée associée à une clé d’idempotence contient une référence circulaire.",
-		);
+		throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 	}
 	ancestors.add(value);
 	try {
@@ -270,10 +230,7 @@ function canonicalize(value: unknown, ancestors: Set<object>): string {
 		}
 		const prototype = Object.getPrototypeOf(value);
 		if (prototype !== Object.prototype && prototype !== null) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"L’entrée associée à une clé d’idempotence doit utiliser des objets de données simples.",
-			);
+			throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 		}
 		return `object:{${Object.entries(value)
 			.sort(([first], [second]) => first.localeCompare(second))

@@ -89,7 +89,7 @@ test("refuse tout asset administratif avant rôle et second facteur", async () =
 				{ userId: "user-1", isAdministrator: true, secondFactorVerified: true },
 				"/assets/admin.js.map",
 			),
-		/introuvable/i,
+		{ code: "administration.asset_not_found" },
 	);
 	await assert.rejects(
 		() =>
@@ -97,7 +97,7 @@ test("refuse tout asset administratif avant rôle et second facteur", async () =
 				{ userId: "user-1", isAdministrator: true, secondFactorVerified: true },
 				"assets/..",
 			),
-		/introuvable/i,
+		{ code: "administration.asset_not_found" },
 	);
 });
 

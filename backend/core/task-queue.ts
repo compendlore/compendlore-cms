@@ -32,7 +32,7 @@ export class PostgresTaskQueue implements TaskQueue {
 	async claimDue(at: Date, limit = 100): Promise<readonly ScheduledTask[]> {
 		validateTaskLimit(limit);
 		if (!(at instanceof Date) || !Number.isFinite(at.getTime())) {
-			throw new CoreError("configuration.invalid", "La date de lecture est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		return this.database.transaction(async (transaction) => {
 			const result = await transaction.query<TaskRow>(/* pgsql */ sql`
@@ -72,7 +72,7 @@ export class PostgresTaskQueue implements TaskQueue {
 			RETURNING id
 		`);
 		if (result.rowCount !== 1) {
-			throw new CoreError("lifecycle.invalid_state", "La tâche n’est pas en cours d’exécution.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 	}
 }
