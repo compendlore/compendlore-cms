@@ -43,6 +43,23 @@ until the release manager assigns a version and publication date.
 
 ### Changed
 
+- Hardened external connector contracts with bounded endpoint collections, explicit HTTP methods,
+  response formats, parameter locations, status codes, boolean flags, and executable connection
+  tests that never require caller-supplied parameters.
+- Completed connector authentication validation and execution for unauthenticated, API Key, Basic,
+  Bearer, OAuth Client Credentials, Authorization Code with PKCE, and Device Code flows, including
+  bounded scopes and normalized provider failures.
+- Added encrypted PostgreSQL persistence for scoped OAuth tokens using digested connection keys,
+  retained refresh tokens across provider rotations, and kept conditional renewal and concurrent
+  token acquisition deterministic.
+- Enforced exhaustive runtime validation and isolation for instance, user, group, and addon
+  connector scopes across credentials, caches, quotas, and connection keys.
+- Hardened connector networking against reserved destinations, cross-origin secret-bearing
+  redirects, oversized streamed responses, and transport-error secret leakage.
+- Enforced capability-bound and consent-aware frontend network declarations with immutable public
+  projections, controlled CSP sources, and strict exclusion of server-secret fields.
+- Bound every connector request to a single-use Security Kernel decision, pinned validated DNS
+  addresses in the HTTPS transport, and added a bounded per-endpoint circuit breaker.
 - Centralized the contribution-type inventory so validation and catalog projection cannot drift
   apart as new Registry types are introduced.
 - Hardened runtime validation for statistics and communication contracts, including every enum,

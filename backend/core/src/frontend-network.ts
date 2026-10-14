@@ -14,16 +14,25 @@ export class FrontendNetworkPolicy {
 
 	register(grant: FrontendNetworkGrant): void {
 		validateDefinition(grant.definition);
+		if (typeof grant.capabilityGranted !== "boolean" || typeof grant.consentGranted !== "boolean") {
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
+		}
 		if (!grant.capabilityGranted) {
 			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		if (grant.definition.requiresConsent && !grant.consentGranted) {
 			throw new CoreError("authorization.denied", "Access denied.");
 		}
-		this.grants.set(grant.definition.ownerIdentifier, grant);
+		const definition = canonicalDefinition(grant.definition);
+		this.grants.set(definition.ownerIdentifier, {
+			definition,
+			capabilityGranted: true,
+			consentGranted: grant.consentGranted,
+		});
 	}
 
 	withdraw(ownerIdentifier: string): void {
+		assertOwnerIdentifier(ownerIdentifier);
 		this.grants.delete(ownerIdentifier);
 	}
 
@@ -62,17 +71,59 @@ export class FrontendNetworkPolicy {
 }
 
 function validateDefinition(definition: FrontendNetworkDefinition): void {
-	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(definition.ownerIdentifier)) {
+	if (!isRecord(definition)) {
 		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
-	if (definition.domains.length === 0 || definition.methods.length === 0) {
+	const keys = Object.keys(definition).sort();
+	const expectedKeys = ["domains", "methods", "ownerIdentifier", "requiresConsent"];
+	if (
+		keys.length !== expectedKeys.length ||
+		keys.some((key, index) => key !== expectedKeys[index])
+	) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+	assertOwnerIdentifier(definition.ownerIdentifier);
+	if (
+		!Array.isArray(definition.domains) ||
+		definition.domains.length === 0 ||
+		definition.domains.length > 32 ||
+		new Set(definition.domains).size !== definition.domains.length ||
+		!Array.isArray(definition.methods) ||
+		definition.methods.length === 0 ||
+		new Set(definition.methods).size !== definition.methods.length ||
+		typeof definition.requiresConsent !== "boolean"
+	) {
 		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	for (const domain of definition.domains) {
-		if (!isPublicDomainName(domain)) {
+		if (typeof domain !== "string" || !isPublicDomainName(domain)) {
 			throw new CoreError("network.denied", "Network access denied.");
 		}
 	}
+	for (const method of definition.methods) {
+		if (!(["DELETE", "GET", "PATCH", "POST", "PUT"] as const).includes(method)) {
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
+		}
+	}
+}
+
+function canonicalDefinition(definition: FrontendNetworkDefinition): FrontendNetworkDefinition {
+	return Object.freeze({
+		ownerIdentifier: definition.ownerIdentifier,
+		domains: Object.freeze([...definition.domains]),
+		methods: Object.freeze([...definition.methods]),
+		requiresConsent: definition.requiresConsent,
+	});
+}
+
+function assertOwnerIdentifier(value: unknown): asserts value is string {
+	if (typeof value !== "string" || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value)) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isPublicDomainName(value: string): boolean {
