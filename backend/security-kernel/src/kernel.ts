@@ -83,6 +83,7 @@ export type SecurityDecision<T> =
 export interface SecurityAuditRecord {
 	readonly evidenceId: string;
 	readonly correlationId: string;
+	readonly surface: SecuritySurface;
 	readonly operation: string;
 	readonly policyIdentifier: string;
 	readonly policyVersion: string;
@@ -211,6 +212,7 @@ export class SecurityKernel {
 		await this.audit.record({
 			evidenceId: evidence.id,
 			correlationId: input.context.correlationId,
+			surface: input.context.surface,
 			operation: input.operation,
 			policyIdentifier: input.policy.identifier,
 			policyVersion: input.policy.version,
@@ -259,6 +261,7 @@ export class SecurityKernel {
 		await this.audit.record({
 			evidenceId,
 			correlationId: input.context.correlationId,
+			surface: input.context.surface,
 			operation: input.operation,
 			policyIdentifier: input.policy.identifier,
 			policyVersion: input.policy.version,

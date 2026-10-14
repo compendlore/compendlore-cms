@@ -50,6 +50,7 @@ export class CoreSecurityAudit implements SecurityAuditPort {
 			metadata: {
 				evidenceId: record.evidenceId,
 				correlationId: record.correlationId,
+				surface: record.surface,
 				operation: record.operation,
 				policyIdentifier: record.policyIdentifier,
 				policyVersion: record.policyVersion,

@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { Readable } from "node:stream";
 import { CoreError } from "./errors.js";
 import type {
 	ConnectorAuthentication,
@@ -8,11 +10,19 @@ import type {
 	ConnectorEndpointDefinition,
 	ConnectorScope,
 } from "./connector-contracts.js";
+import { sql, type CoreDatabase } from "../database-contracts.js";
+import {
+	DefaultCoreSecurityBoundary,
+	type CoreSecurityBoundary,
+	type SecurityContext,
+} from "./security-boundary.js";
 import type { SecretCipher, SecretProvider } from "./services.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 2_097_152;
 const MAXIMUM_REDIRECTS = 3;
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_OPEN_MS = 30_000;
 
 export interface ConnectorNetworkRequest {
 	readonly url: URL;
@@ -22,6 +32,15 @@ export interface ConnectorNetworkRequest {
 	readonly timeoutMs: number;
 	readonly maximumResponseBytes: number;
 	readonly allowedDomains: ReadonlySet<string>;
+	readonly security: ConnectorOutboundSecurityContext;
+}
+
+export interface ConnectorOutboundSecurityContext {
+	readonly connectorIdentifier: string;
+	readonly ownerIdentifier: string;
+	readonly audience: SecurityContext["surface"];
+	readonly correlationId: string;
+	readonly capabilities: ReadonlySet<string>;
 }
 
 export interface ConnectorNetworkResponse {
@@ -35,32 +54,85 @@ export interface ConnectorNetworkPort {
 }
 
 export type DnsResolver = (hostname: string) => Promise<readonly string[]>;
+export type ConnectorNetworkTransport = (
+	url: URL,
+	init: RequestInit,
+	validatedAddresses: readonly string[],
+) => Promise<Response>;
 
 export class SecureConnectorNetwork implements ConnectorNetworkPort {
 	constructor(
-		private readonly fetchImplementation: typeof fetch = fetch,
+		private readonly transport: ConnectorNetworkTransport = pinnedHttpsTransport,
 		private readonly resolveDns: DnsResolver = resolveHost,
+		private readonly securityBoundary: CoreSecurityBoundary = new DefaultCoreSecurityBoundary(),
 	) {}
 
 	async execute(request: ConnectorNetworkRequest): Promise<ConnectorNetworkResponse> {
+		assertOutboundSecurityContext(request.security);
 		let url = new URL(request.url);
 		for (let redirects = 0; redirects <= MAXIMUM_REDIRECTS; redirects += 1) {
-			await assertSafeDestination(url, request.allowedDomains, this.resolveDns);
+			const addresses = await assertSafeDestination(url, request.allowedDomains, this.resolveDns);
+			const resource = outboundSecurityResource(request, url);
+			const decision = await this.securityBoundary.secureInput({
+				operation: "network.connector.execute",
+				value: {
+					connectorIdentifier: request.security.connectorIdentifier,
+					ownerIdentifier: request.security.ownerIdentifier,
+					audience: request.security.audience,
+					method: request.method,
+					destination: `${url.origin}${url.pathname}`,
+					requestDigest: resource.identifier,
+				},
+				context: {
+					correlationId: request.security.correlationId,
+					surface: request.security.audience,
+					subject: {
+						id: request.security.ownerIdentifier,
+						kind: "system",
+						capabilities: request.security.capabilities,
+					},
+					resource,
+				},
+				policy: {
+					identifier: "core.connector.outbound",
+					version: "1.0.0",
+					allowAnonymous: false,
+					requiredCapabilities: ["network.outbound"],
+					maximumSerializedBytes: 16_384,
+				},
+			});
+			if (decision.status !== "allowed") {
+				throw new CoreError("network.denied", "Network access denied.");
+			}
+			if (outboundSecurityResource(request, url).identifier !== resource.identifier) {
+				throw new CoreError("network.denied", "Network access denied.");
+			}
+			try {
+				this.securityBoundary.assertEvidence(decision.secured.evidence, {
+					operation: "network.connector.execute",
+					resource,
+				});
+			} catch {
+				throw new CoreError("network.denied", "Network access denied.");
+			}
 			let response: Response;
 			try {
-				response = await this.fetchImplementation(url, {
-					method: request.method,
-					headers: request.headers,
-					...(request.body === undefined ? {} : { body: request.body }),
-					redirect: "manual",
-					signal: AbortSignal.timeout(request.timeoutMs),
-				});
-			} catch (error) {
+				response = await this.transport(
+					url,
+					{
+						method: request.method,
+						headers: request.headers,
+						...(request.body === undefined ? {} : { body: request.body }),
+						redirect: "manual",
+						signal: AbortSignal.timeout(request.timeoutMs),
+					},
+					addresses,
+				);
+			} catch {
 				throw new CoreError(
 					"infrastructure.unavailable",
 					"The required infrastructure is unavailable.",
 					{
-						cause: error,
 						retryable: true,
 					},
 				);
@@ -70,7 +142,16 @@ export class SecureConnectorNetwork implements ConnectorNetworkPort {
 				if (!location || redirects === MAXIMUM_REDIRECTS) {
 					throw new CoreError("network.denied", "Network access denied.");
 				}
-				url = new URL(location, url);
+				let redirectedUrl: URL;
+				try {
+					redirectedUrl = new URL(location, url);
+				} catch {
+					throw new CoreError("network.denied", "Network access denied.");
+				}
+				if (redirectedUrl.origin !== url.origin) {
+					throw new CoreError("network.denied", "Network access denied.");
+				}
+				url = redirectedUrl;
 				continue;
 			}
 			return {
@@ -103,24 +184,61 @@ export class InMemoryConnectorTokenStore implements ConnectorTokenStore {
 	async get(key: string): Promise<ConnectorToken | undefined> {
 		const sealed = this.tokens.get(key);
 		if (!sealed) return undefined;
-		const parsed = JSON.parse(this.cipher.open(sealed)) as {
-			accessToken: string;
-			refreshToken?: string;
-			expiresAt?: string;
-		};
-		return {
-			accessToken: parsed.accessToken,
-			...(parsed.refreshToken ? { refreshToken: parsed.refreshToken } : {}),
-			...(parsed.expiresAt ? { expiresAt: new Date(parsed.expiresAt) } : {}),
-		};
+		return openConnectorToken(sealed, this.cipher);
 	}
 
 	async set(key: string, token: ConnectorToken): Promise<void> {
-		this.tokens.set(key, this.cipher.seal(JSON.stringify(token)));
+		this.tokens.set(key, sealConnectorToken(token, this.cipher));
 	}
 
 	async delete(key: string): Promise<void> {
 		this.tokens.delete(key);
+	}
+}
+
+interface ConnectorTokenRow {
+	readonly sealed_token: string;
+}
+
+export class PostgresConnectorTokenStore implements ConnectorTokenStore {
+	constructor(
+		private readonly database: Pick<CoreDatabase, "query">,
+		private readonly cipher: SecretCipher,
+	) {}
+
+	async get(key: string): Promise<ConnectorToken | undefined> {
+		const result = await this.database.query<ConnectorTokenRow>(/* pgsql */ sql`
+			SELECT
+				sealed_token
+			FROM
+				core.connector_tokens
+			WHERE
+				connection_key_digest = ${connectorConnectionDigest(key)}
+		`);
+		const row = result.rows[0];
+		return row ? openConnectorToken(row.sealed_token, this.cipher) : undefined;
+	}
+
+	async set(key: string, token: ConnectorToken): Promise<void> {
+		await this.database.query(/* pgsql */ sql`
+			INSERT INTO
+				core.connector_tokens (connection_key_digest, sealed_token, updated_at)
+			VALUES
+				(${connectorConnectionDigest(key)}, ${sealConnectorToken(token, this.cipher)}, now())
+			ON CONFLICT (connection_key_digest) DO UPDATE
+			SET
+				sealed_token = excluded.sealed_token,
+				updated_at = excluded.updated_at
+		`);
+	}
+
+	async delete(key: string): Promise<void> {
+		await this.database.query(/* pgsql */ sql`
+			DELETE FROM
+				core.connector_tokens
+			WHERE
+				connection_key_digest = ${connectorConnectionDigest(key)}
+		`);
 	}
 }
 
@@ -148,17 +266,34 @@ interface PendingAuthorization {
 	readonly expiresAt: number;
 }
 
+interface ConnectorCircuitState {
+	failures: number;
+	openedUntil?: number;
+}
+
+export type ConnectorOutboundContextFactory = (
+	connector: ConnectorDefinition,
+) => ConnectorOutboundSecurityContext;
+
 export class ConnectorEngine {
 	private readonly tokenRequests = new Map<string, Promise<ConnectorToken>>();
 	private readonly cache = new Map<string, CacheEntry>();
 	private readonly quota = new Map<string, number[]>();
 	private readonly pendingAuthorizations = new Map<string, PendingAuthorization>();
+	private readonly circuits = new Map<string, ConnectorCircuitState>();
 
 	constructor(
 		private readonly secrets: SecretProvider,
 		private readonly tokens: ConnectorTokenStore,
 		private readonly network: ConnectorNetworkPort,
 		private readonly now: () => Date = () => new Date(),
+		private readonly outboundContext: ConnectorOutboundContextFactory = (connector) => ({
+			connectorIdentifier: connector.identifier,
+			ownerIdentifier: connector.identifier,
+			audience: "internal",
+			correlationId: randomUUID(),
+			capabilities: new Set(["network.outbound"]),
+		}),
 	) {}
 
 	async execute(input: ConnectorCallInput): Promise<ConnectorCallResult> {
@@ -167,6 +302,8 @@ export class ConnectorEngine {
 		);
 		if (!endpoint) throw new CoreError("configuration.invalid", "Invalid configuration.");
 		const connectionKey = connectorConnectionKey(input.connector.identifier, input.scope);
+		const circuitKey = `${connectionKey}:${endpoint.identifier}`;
+		this.assertCircuitClosed(circuitKey);
 		this.consumeQuota(connectionKey, input.connector.quota);
 		const cacheKey = stableCacheKey(connectionKey, endpoint.identifier, input.parameters ?? {});
 		const cached = this.cache.get(cacheKey);
@@ -185,8 +322,11 @@ export class ConnectorEngine {
 		for (let attempt = 0; attempt < attempts; attempt += 1) {
 			try {
 				response = await this.network.execute(request);
+				if (response.status >= 500) this.recordCircuitFailure(circuitKey);
+				else this.circuits.delete(circuitKey);
 				if (response.status < 500 || !isRetrySafe(endpoint)) break;
 			} catch (error) {
+				this.recordCircuitFailure(circuitKey);
 				lastError = error;
 				if (!isRetrySafe(endpoint) || attempt + 1 >= attempts) throw error;
 			}
@@ -312,11 +452,12 @@ export class ConnectorEngine {
 			timeoutMs: connector.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 			maximumResponseBytes: 262_144,
 			allowedDomains: new Set(connector.allowedDomains.map((domain) => domain.toLowerCase())),
+			security: this.outboundContext(connector),
 		});
 		if (response.status < 200 || response.status >= 300) {
 			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
-		const payload = JSON.parse(Buffer.from(response.body).toString("utf8")) as unknown;
+		const payload = parseOAuthPayload(response.body);
 		const deviceCode = readJsonPath(payload, "device_code");
 		const userCode = readJsonPath(payload, "user_code");
 		const verificationUri = readJsonPath(payload, "verification_uri");
@@ -330,6 +471,7 @@ export class ConnectorEngine {
 				"The required infrastructure is unavailable.",
 			);
 		}
+		assertOAuthVerificationUri(verificationUri, connector.allowedDomains);
 		const expiresIn = readJsonPath(payload, "expires_in");
 		const interval = readJsonPath(payload, "interval");
 		return {
@@ -433,6 +575,7 @@ export class ConnectorEngine {
 			timeoutMs: endpoint.timeoutMs ?? connector.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 			maximumResponseBytes: endpoint.maximumResponseBytes ?? DEFAULT_MAXIMUM_RESPONSE_BYTES,
 			allowedDomains: new Set(connector.allowedDomains.map((domain) => domain.toLowerCase())),
+			security: this.outboundContext(connector),
 		};
 	}
 
@@ -488,13 +631,17 @@ export class ConnectorEngine {
 		const request = this.exchangeOAuthToken(
 			connector,
 			authentication,
-			current?.refreshToken
+			authentication.flow !== "client-credentials" && current?.refreshToken
 				? { grant_type: "refresh_token", refresh_token: current.refreshToken }
 				: { grant_type: "client_credentials" },
 		);
 		this.tokenRequests.set(key, request);
 		try {
-			const token = await request;
+			const received = await request;
+			const token =
+				current?.refreshToken && !received.refreshToken
+					? { ...received, refreshToken: current.refreshToken }
+					: received;
 			await this.tokens.set(key, token);
 			return token;
 		} finally {
@@ -524,11 +671,12 @@ export class ConnectorEngine {
 			timeoutMs: connector.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 			maximumResponseBytes: 262_144,
 			allowedDomains: new Set(connector.allowedDomains.map((domain) => domain.toLowerCase())),
+			security: this.outboundContext(connector),
 		});
 		if (response.status < 200 || response.status >= 300) {
 			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
-		const payload = JSON.parse(Buffer.from(response.body).toString("utf8")) as unknown;
+		const payload = parseOAuthPayload(response.body);
 		const accessToken = readJsonPath(payload, authentication.accessTokenPath ?? "access_token");
 		if (typeof accessToken !== "string" || !accessToken) {
 			throw new CoreError(
@@ -538,11 +686,12 @@ export class ConnectorEngine {
 		}
 		const refreshToken = readJsonPath(payload, authentication.refreshTokenPath ?? "refresh_token");
 		const expiresIn = readJsonPath(payload, authentication.expiresInPath ?? "expires_in");
+		const expiresInSeconds = normalizeExpiresIn(expiresIn);
 		return {
 			accessToken,
 			...(typeof refreshToken === "string" ? { refreshToken } : {}),
-			...(typeof expiresIn === "number" && Number.isFinite(expiresIn)
-				? { expiresAt: new Date(this.now().getTime() + expiresIn * 1_000) }
+			...(expiresInSeconds !== undefined
+				? { expiresAt: new Date(this.now().getTime() + expiresInSeconds * 1_000) }
 				: {}),
 		};
 	}
@@ -557,20 +706,163 @@ export class ConnectorEngine {
 		active.push(now);
 		this.quota.set(connectionKey, active);
 	}
+
+	private assertCircuitClosed(key: string): void {
+		const state = this.circuits.get(key);
+		if (!state?.openedUntil) return;
+		if (state.openedUntil <= this.now().getTime()) {
+			this.circuits.delete(key);
+			return;
+		}
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+			{
+				retryable: true,
+			},
+		);
+	}
+
+	private recordCircuitFailure(key: string): void {
+		const state = this.circuits.get(key) ?? { failures: 0 };
+		state.failures += 1;
+		if (state.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+			state.openedUntil = this.now().getTime() + CIRCUIT_OPEN_MS;
+		}
+		this.circuits.set(key, state);
+	}
 }
 
 export function connectorConnectionKey(identifier: string, scope: ConnectorScope): string {
+	assertConnectorIdentifier(identifier);
+	assertConnectorScope(scope);
 	if (scope.kind === "instance") return `${identifier}:instance`;
 	if (scope.kind === "user") return `${identifier}:user:${scope.userId}`;
 	if (scope.kind === "group") return `${identifier}:group:${scope.groupIdentifier}`;
 	return `${identifier}:addon:${scope.addonIdentifier}`;
 }
 
+function assertConnectorIdentifier(identifier: string): void {
+	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(identifier)) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+}
+
+function assertConnectorScope(scope: unknown): asserts scope is ConnectorScope {
+	if (scope === null || typeof scope !== "object" || Array.isArray(scope)) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+	const candidate = scope as {
+		kind?: unknown;
+		userId?: unknown;
+		groupIdentifier?: unknown;
+		addonIdentifier?: unknown;
+	};
+	if (candidate.kind === "instance") {
+		assertExactScopeKeys(candidate, ["kind"]);
+		return;
+	}
+	if (candidate.kind === "user") {
+		assertExactScopeKeys(candidate, ["kind", "userId"]);
+		assertScopeIdentifier(candidate.userId);
+		return;
+	}
+	if (candidate.kind === "group") {
+		assertExactScopeKeys(candidate, ["groupIdentifier", "kind"]);
+		assertScopeIdentifier(candidate.groupIdentifier);
+		return;
+	}
+	if (candidate.kind === "addon") {
+		assertExactScopeKeys(candidate, ["addonIdentifier", "kind"]);
+		assertScopeIdentifier(candidate.addonIdentifier);
+		return;
+	}
+	throw new CoreError("configuration.invalid", "Invalid configuration.");
+}
+
+function assertExactScopeKeys(value: object, expected: readonly string[]): void {
+	const keys = Object.keys(value).sort();
+	if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+}
+
+function assertScopeIdentifier(value: unknown): asserts value is string {
+	if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
+	}
+}
+
+function connectorConnectionDigest(key: string): string {
+	return createHash("sha256").update(key).digest("hex");
+}
+
+function sealConnectorToken(token: ConnectorToken, cipher: SecretCipher): string {
+	assertConnectorToken(token);
+	return cipher.seal(
+		JSON.stringify({
+			accessToken: token.accessToken,
+			...(token.refreshToken ? { refreshToken: token.refreshToken } : {}),
+			...(token.expiresAt ? { expiresAt: token.expiresAt.toISOString() } : {}),
+		}),
+	);
+}
+
+function openConnectorToken(sealed: string, cipher: SecretCipher): ConnectorToken {
+	try {
+		const parsed = JSON.parse(cipher.open(sealed)) as unknown;
+		assertConnectorToken(parsed);
+		return parsed;
+	} catch (error) {
+		if (error instanceof CoreError) throw error;
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+			{ cause: error },
+		);
+	}
+}
+
+function assertConnectorToken(value: unknown): asserts value is ConnectorToken {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+		);
+	}
+	const token = value as { accessToken?: unknown; refreshToken?: unknown; expiresAt?: unknown };
+	if (
+		typeof token.accessToken !== "string" ||
+		!token.accessToken ||
+		(token.refreshToken !== undefined && typeof token.refreshToken !== "string")
+	) {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+		);
+	}
+	if (typeof token.expiresAt === "string") {
+		const expiresAt = new Date(token.expiresAt);
+		if (Number.isNaN(expiresAt.getTime())) {
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+			);
+		}
+		(token as { expiresAt: Date }).expiresAt = expiresAt;
+	} else if (token.expiresAt !== undefined && !(token.expiresAt instanceof Date)) {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+		);
+	}
+}
+
 async function assertSafeDestination(
 	url: URL,
 	allowedDomains: ReadonlySet<string>,
 	resolver: DnsResolver,
-): Promise<void> {
+): Promise<readonly string[]> {
 	if (
 		url.protocol !== "https:" ||
 		url.username ||
@@ -582,23 +874,135 @@ async function assertSafeDestination(
 	const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
 	if (!allowedDomains.has(hostname))
 		throw new CoreError("network.denied", "Network access denied.");
-	const addresses = isIP(hostname) ? [hostname] : await resolver(hostname);
-	if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
+	let addresses: readonly string[];
+	try {
+		addresses = isIP(hostname) ? [hostname] : await resolver(hostname);
+	} catch {
 		throw new CoreError("network.denied", "Network access denied.");
 	}
+	if (
+		addresses.length === 0 ||
+		addresses.some((address) => isIP(address) === 0 || isPrivateOrReservedAddress(address))
+	) {
+		throw new CoreError("network.denied", "Network access denied.");
+	}
+	return [...new Set(addresses)];
+}
+
+function outboundSecurityResource(
+	request: ConnectorNetworkRequest,
+	url: URL,
+): { readonly kind: string; readonly identifier: string } {
+	const headers = Object.entries(request.headers)
+		.map(([name, value]) => [name.toLowerCase(), value] as const)
+		.sort(([first], [second]) => first.localeCompare(second));
+	const digest = createHash("sha256")
+		.update(
+			JSON.stringify({
+				connectorIdentifier: request.security.connectorIdentifier,
+				ownerIdentifier: request.security.ownerIdentifier,
+				audience: request.security.audience,
+				url: url.toString(),
+				method: request.method,
+				headers,
+				body: request.body ?? null,
+				timeoutMs: request.timeoutMs,
+				maximumResponseBytes: request.maximumResponseBytes,
+				allowedDomains: [...request.allowedDomains].sort(),
+			}),
+		)
+		.digest("hex");
+	return {
+		kind: "outbound-connector-request",
+		identifier: `${request.security.connectorIdentifier}.${digest}`,
+	};
+}
+
+function assertOutboundSecurityContext(
+	value: unknown,
+): asserts value is ConnectorOutboundSecurityContext {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new CoreError("network.denied", "Network access denied.");
+	}
+	const context = value as Partial<ConnectorOutboundSecurityContext>;
+	if (
+		typeof context.connectorIdentifier !== "string" ||
+		typeof context.ownerIdentifier !== "string" ||
+		typeof context.correlationId !== "string" ||
+		!context.correlationId ||
+		!["administration", "internal", "public", "site"].includes(context.audience ?? "") ||
+		!(context.capabilities instanceof Set) ||
+		!context.capabilities.has("network.outbound")
+	) {
+		throw new CoreError("network.denied", "Network access denied.");
+	}
+	assertConnectorIdentifier(context.connectorIdentifier);
+	assertConnectorIdentifier(context.ownerIdentifier);
+}
+
+async function pinnedHttpsTransport(
+	url: URL,
+	init: RequestInit,
+	validatedAddresses: readonly string[],
+): Promise<Response> {
+	const address = validatedAddresses[0];
+	if (!address) throw new CoreError("network.denied", "Network access denied.");
+	return new Promise<Response>((resolve, reject) => {
+		const request = httpsRequest(
+			url,
+			{
+				method: init.method,
+				headers: init.headers as Readonly<Record<string, string>>,
+				signal: init.signal ?? undefined,
+				lookup: (_hostname, _options, callback) => {
+					callback(null, address, isIP(address));
+				},
+			},
+			(incoming) => {
+				const headers = new Headers();
+				for (const [name, value] of Object.entries(incoming.headers)) {
+					if (Array.isArray(value)) {
+						for (const item of value) headers.append(name, item);
+					} else if (value !== undefined) headers.set(name, value);
+				}
+				resolve(
+					new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+						status: incoming.statusCode ?? 502,
+						...(incoming.statusMessage ? { statusText: incoming.statusMessage } : {}),
+						headers,
+					}),
+				);
+			},
+		);
+		request.once("error", reject);
+		if (init.body !== undefined && init.body !== null) {
+			if (typeof init.body !== "string") {
+				request.destroy(new Error("Unsupported connector request body."));
+				return;
+			}
+			request.write(init.body);
+		}
+		request.end();
+	});
 }
 
 async function resolveHost(hostname: string): Promise<readonly string[]> {
 	return (await lookup(hostname, { all: true, verbatim: true })).map((entry) => entry.address);
 }
 
-function isPrivateAddress(address: string): boolean {
+function isPrivateOrReservedAddress(address: string): boolean {
+	const normalized = address.toLowerCase();
 	if (
-		address === "::1" ||
-		address === "::" ||
-		address.startsWith("fe80:") ||
-		address.startsWith("fc") ||
-		address.startsWith("fd")
+		normalized === "::1" ||
+		normalized === "::" ||
+		normalized.startsWith("fe8") ||
+		normalized.startsWith("fe9") ||
+		normalized.startsWith("fea") ||
+		normalized.startsWith("feb") ||
+		normalized.startsWith("fc") ||
+		normalized.startsWith("fd") ||
+		normalized.startsWith("ff") ||
+		normalized.startsWith("2001:db8:")
 	)
 		return true;
 	const mapped = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)?.[1];
@@ -608,10 +1012,15 @@ function isPrivateAddress(address: string): boolean {
 	return (
 		first === 0 ||
 		first === 10 ||
+		(first === 100 && second! >= 64 && second! <= 127) ||
 		first === 127 ||
 		(first === 169 && second === 254) ||
 		(first === 172 && second! >= 16 && second! <= 31) ||
+		(first === 192 && second === 0) ||
+		(first === 192 && second === 2) ||
 		(first === 192 && second === 168) ||
+		(first === 198 && (second === 18 || second === 19 || second === 51)) ||
+		(first === 203 && second === 0) ||
 		first! >= 224
 	);
 }
@@ -677,6 +1086,51 @@ function readJsonPath(value: unknown, path: string): unknown {
 			return undefined;
 		return (current as Record<string, unknown>)[segment];
 	}, value);
+}
+
+function parseOAuthPayload(body: Uint8Array): unknown {
+	try {
+		return JSON.parse(Buffer.from(body).toString("utf8")) as unknown;
+	} catch (error) {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+			{ cause: error },
+		);
+	}
+}
+
+function normalizeExpiresIn(value: unknown): number | undefined {
+	const seconds = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+	if (
+		typeof seconds !== "number" ||
+		!Number.isSafeInteger(seconds) ||
+		seconds < 1 ||
+		seconds > 31_536_000
+	) {
+		return undefined;
+	}
+	return seconds;
+}
+
+function assertOAuthVerificationUri(value: string, allowedDomains: readonly string[]): void {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+		);
+	}
+	if (
+		url.protocol !== "https:" ||
+		url.username ||
+		url.password ||
+		!allowedDomains.includes(url.hostname.toLowerCase())
+	) {
+		throw new CoreError("network.denied", "Network access denied.");
+	}
 }
 
 function requireOAuthFlow(

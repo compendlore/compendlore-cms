@@ -1,4 +1,8 @@
-import type { CoreJsonValue, RegistryMutationCandidate } from "../../core/src/index.js";
+import type {
+	ConnectorParameterDefinition,
+	CoreJsonValue,
+	RegistryMutationCandidate,
+} from "../../core/src/index.js";
 import {
 	contributionKey,
 	contributionTypes,
@@ -51,6 +55,14 @@ const replacementPolicies = new Set<NonNullable<ContributionDefinition["replacem
 ]);
 const apiAudiences = ["internal", "public", "site"] as const;
 const apiHttpMethods = ["DELETE", "GET", "PATCH", "POST", "PUT"] as const;
+const connectorParameterLocations = ["body", "header", "path", "query"] as const;
+const connectorResponseFormats = ["bytes", "json", "text"] as const;
+const connectorAuthenticationKinds = ["none", "api-key", "basic", "bearer", "oauth2"] as const;
+const connectorOAuthFlows = [
+	"authorization-code-pkce",
+	"client-credentials",
+	"device-code",
+] as const;
 
 export function validateContributionDefinition(definition: ContributionDefinition): void {
 	if (!isRecord(definition)) throw invalid("The declaration is invalid.");
@@ -143,7 +155,7 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 	if (definition.type !== "frontend-network" && definition.frontendNetwork) {
 		throw invalid("The declaration is invalid.");
 	}
-	if (definition.frontendNetwork) validateFrontendNetwork(definition.frontendNetwork);
+	if (definition.frontendNetwork) validateFrontendNetwork(definition, definition.frontendNetwork);
 	validateStatisticContract(definition);
 	validateMessagingContract(definition);
 	validateConfiguration(definition);
@@ -545,6 +557,7 @@ function validateSafeLocalizedText(value: Readonly<Record<string, string>>): voi
 }
 
 function validateConnector(connector: NonNullable<ContributionDefinition["connector"]>): void {
+	if (!isRecord(connector)) throw invalid("The declaration is invalid.");
 	validateIdentifier(connector.identifier, "connector");
 	let baseUrl: URL;
 	try {
@@ -562,13 +575,27 @@ function validateConnector(connector: NonNullable<ContributionDefinition["connec
 	) {
 		throw invalid("The declaration is invalid.");
 	}
-	if (connector.allowedDomains.length === 0) throw invalid("The declaration is invalid.");
+	if (
+		!Array.isArray(connector.allowedDomains) ||
+		connector.allowedDomains.length === 0 ||
+		connector.allowedDomains.length > 32 ||
+		new Set(connector.allowedDomains).size !== connector.allowedDomains.length
+	)
+		throw invalid("The declaration is invalid.");
 	for (const domain of connector.allowedDomains) validateDomain(domain);
 	if (!connector.allowedDomains.includes(baseUrl.hostname.toLowerCase())) {
 		throw invalid("The declaration is invalid.");
 	}
+	if (
+		!Array.isArray(connector.endpoints) ||
+		connector.endpoints.length === 0 ||
+		connector.endpoints.length > 128
+	)
+		throw invalid("The declaration is invalid.");
 	const endpointIdentifiers = new Set<string>();
 	for (const endpoint of connector.endpoints) {
+		if (endpoint === null || typeof endpoint !== "object" || Array.isArray(endpoint))
+			throw invalid("The declaration is invalid.");
 		validateIdentifier(endpoint.identifier, "connector endpoint");
 		if (endpointIdentifiers.has(endpoint.identifier)) throw invalid("The declaration is invalid.");
 		endpointIdentifiers.add(endpoint.identifier);
@@ -579,10 +606,13 @@ function validateConnector(connector: NonNullable<ContributionDefinition["connec
 		) {
 			throw invalid("The declaration is invalid.");
 		}
+		assertKnownValue(endpoint.method, apiHttpMethods, "connector HTTP method");
 		if (
+			!Array.isArray(endpoint.successStatuses) ||
 			endpoint.successStatuses.length === 0 ||
+			new Set(endpoint.successStatuses).size !== endpoint.successStatuses.length ||
 			endpoint.successStatuses.some(
-				(status) => !Number.isSafeInteger(status) || status < 200 || status > 399,
+				(status: number) => !Number.isSafeInteger(status) || status < 200 || status > 399,
 			)
 		) {
 			throw invalid("The declaration is invalid.");
@@ -591,18 +621,48 @@ function validateConnector(connector: NonNullable<ContributionDefinition["connec
 		validatePositiveLimit(endpoint.timeoutMs, 120_000, "timeout");
 		validateNonNegativeLimit(endpoint.retries, 5, "retry count");
 		validateNonNegativeLimit(endpoint.cacheTtlSeconds, 86_400, "cache duration");
+		if (endpoint.retrySafe !== undefined && typeof endpoint.retrySafe !== "boolean") {
+			throw invalid("The declaration is invalid.");
+		}
 		if (endpoint.retries && endpoint.method !== "GET" && !endpoint.retrySafe) {
 			throw invalid("The declaration is invalid.");
 		}
+		if (
+			endpoint.response === null ||
+			typeof endpoint.response !== "object" ||
+			Array.isArray(endpoint.response)
+		)
+			throw invalid("The declaration is invalid.");
+		assertKnownValue(endpoint.response.format, connectorResponseFormats, "response format");
+		if (
+			endpoint.response.requiredJsonPaths !== undefined &&
+			(!Array.isArray(endpoint.response.requiredJsonPaths) ||
+				endpoint.response.requiredJsonPaths.length > 128 ||
+				new Set(endpoint.response.requiredJsonPaths).size !==
+					endpoint.response.requiredJsonPaths.length)
+		)
+			throw invalid("The declaration is invalid.");
 		for (const path of endpoint.response.requiredJsonPaths ?? []) validateJsonPath(path);
 		if (endpoint.response.format !== "json" && endpoint.response.requiredJsonPaths?.length) {
 			throw invalid("The declaration is invalid.");
 		}
+		if (
+			endpoint.parameters !== undefined &&
+			(!Array.isArray(endpoint.parameters) || endpoint.parameters.length > 64)
+		)
+			throw invalid("The declaration is invalid.");
 		const parameters = new Set<string>();
 		for (const parameter of endpoint.parameters ?? []) {
+			if (parameter === null || typeof parameter !== "object" || Array.isArray(parameter))
+				throw invalid("The declaration is invalid.");
 			validateIdentifier(parameter.name, "connector parameter");
 			if (parameters.has(parameter.name)) throw invalid("The declaration is invalid.");
 			parameters.add(parameter.name);
+			assertKnownValue(parameter.location, connectorParameterLocations, "parameter location");
+			if (parameter.required !== undefined && typeof parameter.required !== "boolean")
+				throw invalid("The declaration is invalid.");
+			if (parameter.sensitive !== undefined && typeof parameter.sensitive !== "boolean")
+				throw invalid("The declaration is invalid.");
 			if (
 				parameter.location === "header" &&
 				["authorization", "cookie", "host"].includes(parameter.name.toLowerCase())
@@ -613,7 +673,7 @@ function validateConnector(connector: NonNullable<ContributionDefinition["connec
 		for (const placeholder of endpoint.path.matchAll(/:([a-z][a-z0-9]*)/g)) {
 			if (
 				!endpoint.parameters?.some(
-					(parameter) =>
+					(parameter: ConnectorParameterDefinition) =>
 						parameter.name === placeholder[1] &&
 						parameter.location === "path" &&
 						parameter.required,
@@ -624,6 +684,16 @@ function validateConnector(connector: NonNullable<ContributionDefinition["connec
 		}
 	}
 	if (!endpointIdentifiers.has(connector.connectionTestEndpoint)) {
+		throw invalid("The declaration is invalid.");
+	}
+	const connectionTest = connector.endpoints.find(
+		(endpoint) => endpoint.identifier === connector.connectionTestEndpoint,
+	);
+	if (
+		connectionTest?.parameters?.some(
+			(parameter: ConnectorParameterDefinition) => parameter.required,
+		)
+	) {
 		throw invalid("The declaration is invalid.");
 	}
 	validateAuthentication(connector.authentication, baseUrl, new Set(connector.allowedDomains));
@@ -641,6 +711,8 @@ function validateAuthentication(
 	baseUrl: URL,
 	allowedDomains: ReadonlySet<string>,
 ): void {
+	if (!isRecord(authentication)) throw invalid("The declaration is invalid.");
+	assertKnownValue(authentication.kind, connectorAuthenticationKinds, "authentication kind");
 	if (authentication.kind === "none") return;
 	if (authentication.kind === "api-key") {
 		validateSecretReference(authentication.secretReference);
@@ -661,6 +733,7 @@ function validateAuthentication(
 		validateSecretReference(authentication.secretReference);
 		return;
 	}
+	assertKnownValue(authentication.flow, connectorOAuthFlows, "OAuth flow");
 	validateSecretReference(authentication.clientIdSecretReference);
 	if (authentication.clientSecretReference)
 		validateSecretReference(authentication.clientSecretReference);
@@ -696,16 +769,55 @@ function validateAuthentication(
 	]) {
 		if (path) validateJsonPath(path);
 	}
+	if (
+		authentication.scopes !== undefined &&
+		(!Array.isArray(authentication.scopes) ||
+			authentication.scopes.length > 64 ||
+			new Set(authentication.scopes).size !== authentication.scopes.length)
+	) {
+		throw invalid("The declaration is invalid.");
+	}
+	for (const scope of authentication.scopes ?? []) {
+		if (typeof scope !== "string" || !/^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/.test(scope)) {
+			throw invalid("The declaration is invalid.");
+		}
+	}
 }
 
 function validateFrontendNetwork(
+	definition: ContributionDefinition,
 	network: NonNullable<ContributionDefinition["frontendNetwork"]>,
 ): void {
+	if (!isRecord(network)) throw invalid("The declaration is invalid.");
+	assertExactKeys(network, ["domains", "methods", "ownerIdentifier", "requiresConsent"]);
 	validateIdentifier(network.ownerIdentifier, "frontend network owner");
-	if (network.domains.length === 0 || network.methods.length === 0) {
+	if (network.ownerIdentifier !== definition.owner.identifier) {
 		throw invalid("The declaration is invalid.");
 	}
-	for (const domain of network.domains) validateDomain(domain);
+	if (!definition.requiredCapabilities?.includes("network.frontend")) {
+		throw invalid("The declaration is invalid.");
+	}
+	if (
+		!Array.isArray(network.domains) ||
+		network.domains.length === 0 ||
+		network.domains.length > 32 ||
+		!Array.isArray(network.methods) ||
+		network.methods.length === 0 ||
+		typeof network.requiresConsent !== "boolean"
+	) {
+		throw invalid("The declaration is invalid.");
+	}
+	validateUniqueValues(network.domains, "frontend network domain");
+	validateUniqueValues(network.methods, "frontend network method");
+	for (const domain of network.domains) {
+		if (typeof domain !== "string") throw invalid("The declaration is invalid.");
+		validateDomain(domain);
+	}
+	for (const method of network.methods) {
+		if (typeof method !== "string" || !new Set<string>(apiHttpMethods).has(method)) {
+			throw invalid("The declaration is invalid.");
+		}
+	}
 }
 
 function validateSecretReference(reference: string): void {
@@ -1034,6 +1146,20 @@ function assertOptionalArray(value: unknown, label: string): void {
 function assertRequiredArray(value: unknown, label: string): asserts value is readonly unknown[] {
 	if (!Array.isArray(value)) {
 		throw invalid(`The ${label} declaration must be an array.`);
+	}
+}
+
+function assertExactKeys(
+	value: Readonly<Record<string, unknown>>,
+	expected: readonly string[],
+): void {
+	const keys = Object.keys(value).sort();
+	const sortedExpected = [...expected].sort();
+	if (
+		keys.length !== sortedExpected.length ||
+		keys.some((key, index) => key !== sortedExpected[index])
+	) {
+		throw invalid("The declaration is invalid.");
 	}
 }
 

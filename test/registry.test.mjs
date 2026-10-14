@@ -31,6 +31,51 @@ async function createRegistry() {
 	return { store, registry };
 }
 
+function connectorDefinition(overrides = {}) {
+	return {
+		identifier: "official.library",
+		baseUrl: "https://api.example.com/v1/",
+		allowedDomains: ["api.example.com", "auth.example.com"],
+		endpoints: [
+			{
+				identifier: "connection.health",
+				path: "/health",
+				method: "GET",
+				successStatuses: [200, 204],
+				response: { format: "json", requiredJsonPaths: ["status"] },
+				maximumResponseBytes: 16_384,
+				timeoutMs: 2_000,
+				retries: 1,
+			},
+			{
+				identifier: "catalog.read",
+				path: "/catalog/:id",
+				method: "GET",
+				parameters: [
+					{ name: "id", location: "path", required: true },
+					{ name: "locale", location: "query" },
+				],
+				successStatuses: [200],
+				response: { format: "json", requiredJsonPaths: ["id", "name"] },
+				cacheTtlSeconds: 60,
+			},
+		],
+		authentication: {
+			kind: "oauth2",
+			flow: "client-credentials",
+			clientIdSecretReference: "env:CLIENT_ID",
+			clientSecretReference: "env:CLIENT_SECRET",
+			tokenEndpoint: "https://auth.example.com/oauth/token",
+		},
+		connectionTestEndpoint: "connection.health",
+		quota: { limit: 100, windowSeconds: 60 },
+		cacheTtlSeconds: 30,
+		retries: 1,
+		timeoutMs: 5_000,
+		...overrides,
+	};
+}
+
 test("enregistre, active et expose les contributions déclaratives", async () => {
 	const { registry } = await createRegistry();
 	const moduleDefinition = contribution("module", "editorial.content", {
@@ -58,6 +103,179 @@ test("enregistre, active et expose les contributions déclaratives", async () =>
 	assert.deepEqual(inspection.activationBlockers, []);
 	assert.deepEqual(inspection.withdrawalBlockers, []);
 	assert.deepEqual(inspection.blockers, []);
+});
+
+test("valide et expose un contrat de connecteur complet", async () => {
+	const { registry } = await createRegistry();
+	const definition = contribution("connector", "official.library", {
+		connector: connectorDefinition(),
+	});
+	await registry.register(definition, { requester: nativeOwner });
+	await registry.activate("connector.official.library", { requester: nativeOwner });
+	const stored = await registry.get("connector.official.library");
+	assert.equal(stored.connector.baseUrl, "https://api.example.com/v1/");
+	assert.equal(stored.connector.endpoints.length, 2);
+	assert.equal(stored.connector.connectionTestEndpoint, "connection.health");
+	assert.deepEqual(stored.connector.quota, { limit: 100, windowSeconds: 60 });
+});
+
+test("valide le réseau frontend et interdit les secrets serveur", async () => {
+	const { registry } = await createRegistry();
+	const definition = contribution("frontend-network", "editorial.frontend-network", {
+		requiredCapabilities: ["network.frontend"],
+		frontendNetwork: {
+			ownerIdentifier: nativeOwner.identifier,
+			domains: ["assets.example.com"],
+			methods: ["GET"],
+			requiresConsent: true,
+		},
+	});
+	await registry.register(definition, { requester: nativeOwner });
+	const stored = await registry.get("frontend-network.editorial.frontend-network");
+	assert.deepEqual(stored.frontendNetwork, definition.frontendNetwork);
+
+	const invalidNetworks = [
+		{ ...definition.frontendNetwork, secretReference: "env:SERVER_SECRET" },
+		{ ...definition.frontendNetwork, ownerIdentifier: "addon.other" },
+		{ ...definition.frontendNetwork, methods: ["TRACE"] },
+		{ ...definition.frontendNetwork, requiresConsent: "yes" },
+	];
+	for (const [index, frontendNetwork] of invalidNetworks.entries()) {
+		await assert.rejects(
+			registry.register(
+				contribution("frontend-network", `invalid.network-${index}`, {
+					requiredCapabilities: ["network.frontend"],
+					frontendNetwork,
+				}),
+				{ requester: nativeOwner },
+			),
+			{ code: "registry.contract_invalid" },
+		);
+	}
+	await assert.rejects(
+		registry.register(
+			contribution("frontend-network", "missing.capability", {
+				frontendNetwork: definition.frontendNetwork,
+			}),
+			{ requester: nativeOwner },
+		),
+		{ code: "registry.contract_invalid" },
+	);
+});
+
+test("refuse les contrats de connecteur incomplets ou ambigus", async () => {
+	const invalidConnectors = [
+		connectorDefinition({ allowedDomains: ["api.example.com", "api.example.com"] }),
+		connectorDefinition({ endpoints: [] }),
+		connectorDefinition({
+			endpoints: [
+				{
+					...connectorDefinition().endpoints[0],
+					method: "TRACE",
+				},
+			],
+		}),
+		connectorDefinition({
+			endpoints: [
+				{
+					...connectorDefinition().endpoints[0],
+					response: { format: "xml" },
+				},
+			],
+		}),
+		connectorDefinition({
+			endpoints: [
+				{
+					...connectorDefinition().endpoints[0],
+					parameters: [{ name: "session", location: "cookie" }],
+				},
+			],
+		}),
+		connectorDefinition({
+			endpoints: [
+				{
+					...connectorDefinition().endpoints[0],
+					retrySafe: "yes",
+				},
+			],
+		}),
+		connectorDefinition({
+			endpoints: [
+				{
+					...connectorDefinition().endpoints[0],
+					parameters: [{ name: "tenant", location: "query", required: true }],
+				},
+			],
+		}),
+	];
+	for (const [index, connector] of invalidConnectors.entries()) {
+		const { registry } = await createRegistry();
+		await assert.rejects(
+			registry.register(contribution("connector", `invalid.connector-${index}`, { connector }), {
+				requester: nativeOwner,
+			}),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
+});
+
+test("refuse les authentifications de connecteur invalides", async () => {
+	const invalidAuthentications = [
+		{ kind: "digest", secretReference: "env:SECRET" },
+		{
+			kind: "api-key",
+			secretReference: "invalid reference",
+			header: "X-API-Key",
+		},
+		{
+			kind: "oauth2",
+			flow: "implicit",
+			clientIdSecretReference: "env:CLIENT_ID",
+			tokenEndpoint: "https://auth.example.com/oauth/token",
+		},
+		{
+			kind: "oauth2",
+			flow: "client-credentials",
+			clientIdSecretReference: "env:CLIENT_ID",
+			tokenEndpoint: "https://auth.example.com/oauth/token",
+		},
+		{
+			kind: "oauth2",
+			flow: "client-credentials",
+			clientIdSecretReference: "env:CLIENT_ID",
+			clientSecretReference: "env:CLIENT_SECRET",
+			tokenEndpoint: "https://outside.example.net/oauth/token",
+		},
+		{
+			kind: "oauth2",
+			flow: "client-credentials",
+			clientIdSecretReference: "env:CLIENT_ID",
+			clientSecretReference: "env:CLIENT_SECRET",
+			tokenEndpoint: "https://auth.example.com/oauth/token",
+			scopes: ["catalog.read", "catalog.read"],
+		},
+		{
+			kind: "oauth2",
+			flow: "device-code",
+			clientIdSecretReference: "env:CLIENT_ID",
+			tokenEndpoint: "https://auth.example.com/oauth/token",
+			deviceAuthorizationEndpoint: "https://auth.example.com/oauth/device",
+			scopes: ["invalid scope"],
+		},
+	];
+
+	for (const [index, authentication] of invalidAuthentications.entries()) {
+		const { registry } = await createRegistry();
+		await assert.rejects(
+			registry.register(
+				contribution("connector", `invalid.authentication-${index}`, {
+					connector: connectorDefinition({ authentication }),
+				}),
+				{ requester: nativeOwner },
+			),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
 });
 
 test("enregistre segments, actions et abonnements de messagerie", async () => {
