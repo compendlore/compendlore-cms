@@ -64,7 +64,8 @@ async function handle(
 		if (!configuredGateway) {
 			writeJson(response, 503, {
 				error: "api.unavailable",
-				message: "La passerelle API n’est pas initialisée.",
+				messageKey: "api.unavailable",
+				message: "The API gateway is unavailable.",
 			});
 			return;
 		}
@@ -77,6 +78,9 @@ async function handle(
 		const idempotencyKey = header(request, "x-idempotency-key");
 		const locale = header(request, "accept-language");
 		const correlationId = header(request, "x-correlation-id");
+		const origin = header(request, "origin");
+		const csrfToken = header(request, "x-csrf-token");
+		const csrfCookie = readCookie(request, "compendlore_csrf");
 		const result = await configuredGateway.invoke({
 			audience,
 			method,
@@ -87,13 +91,17 @@ async function handle(
 			...(idempotencyKey ? { idempotencyKey } : {}),
 			...(locale ? { locale } : {}),
 			...(correlationId ? { correlationId } : {}),
+			...(origin ? { origin } : {}),
+			...(csrfToken ? { csrfToken } : {}),
+			...(csrfCookie ? { csrfCookie } : {}),
 		});
 		response.setHeader("x-correlation-id", result.correlationId);
 		writeJson(response, result.status, result.body);
 	} catch {
 		writeJson(response, 400, {
 			error: "api.transport_invalid",
-			message: "La requête de transport est invalide.",
+			messageKey: "api.transport_invalid",
+			message: "The API transport request is invalid.",
 		});
 	}
 }
@@ -131,7 +139,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 	for await (const chunk of request) {
 		const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 		size += buffer.length;
-		if (size > BODY_LIMIT) throw new Error("Corps trop volumineux.");
+		if (size > BODY_LIMIT) throw new Error("The request body is too large.");
 		chunks.push(buffer);
 	}
 	if (size === 0) return null;
@@ -167,6 +175,18 @@ function readCredentials(request: IncomingMessage): ApiCredentials | undefined {
 function header(request: IncomingMessage, name: string): string | undefined {
 	const value = request.headers[name];
 	return Array.isArray(value) ? value[0] : value;
+}
+
+function readCookie(request: IncomingMessage, name: string): string | undefined {
+	const cookies = header(request, "cookie");
+	if (!cookies) return undefined;
+	for (const part of cookies.split(";")) {
+		const separator = part.indexOf("=");
+		if (separator < 1) continue;
+		if (part.slice(0, separator).trim() === name)
+			return decodeURIComponent(part.slice(separator + 1).trim());
+	}
+	return undefined;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {

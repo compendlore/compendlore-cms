@@ -32,6 +32,14 @@ until the release manager assigns a version and publication date.
   registered transformations, withdrawal policies, atomic recovery, and persistent journaling.
 - Added Core-issued schema execution decisions with plan integrity proofs, destructive-operation
   approval, replay protection, concurrency control, and physical-drift detection.
+- Added the Core messaging lifecycle with transactional outbox publication, backend audience
+  resolution, durable delivery attempts, acknowledgements, dead letters, and cursor-based recovery.
+- Added immutable localized notification templates, classified variables, historical rendering,
+  scoped user preferences, mandatory communication purposes, and connector-backed channels.
+- Added authorized campaign preview, testing, confirmation, scheduling, cancellation, revocation,
+  aggregate delivery inspection, audited dead-letter replay, and contribution lifecycle guards.
+- Added a mandatory Security Kernel API pipeline with transport controls, bounded input decisions,
+  single-use evidence, replay protection, protected output projection, and fail-closed diagnostics.
 
 ### Changed
 

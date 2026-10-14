@@ -327,7 +327,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 			}
 		}
 		for (const key of pendingDisable.keys()) {
-			failed[key] = "La contribution est encore requise par une contribution active.";
+			failed[key] = "The contribution is still required by an active contribution.";
 		}
 
 		let progress = true;
@@ -351,7 +351,7 @@ export class CmsRegistry implements RegisteredMethodInvoker {
 		for (const key of desiredKeys) {
 			const contribution = await this.repository.get(key);
 			if (contribution?.state !== "active" && !failed[key]) {
-				failed[key] = "Les dépendances requises ne peuvent pas être activées.";
+				failed[key] = "The required dependencies cannot be activated.";
 			}
 		}
 		return { registered, updated, activated, disabled, failed };
@@ -562,6 +562,11 @@ function definitionFromStored(contribution: StoredContribution): ContributionDef
 		...(contribution.statisticPolicy ? { statisticPolicy: contribution.statisticPolicy } : {}),
 		...(contribution.messageTopic ? { messageTopic: contribution.messageTopic } : {}),
 		...(contribution.messageTemplate ? { messageTemplate: contribution.messageTemplate } : {}),
+		...(contribution.messageAction ? { messageAction: contribution.messageAction } : {}),
+		...(contribution.messageSegment ? { messageSegment: contribution.messageSegment } : {}),
+		...(contribution.messageSubscription
+			? { messageSubscription: contribution.messageSubscription }
+			: {}),
 		...(contribution.payload !== undefined ? { payload: contribution.payload } : {}),
 	};
 }

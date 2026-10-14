@@ -10,7 +10,8 @@
 	"exports": {
 		"./core": "./build/core/src/index.js",
 		"./core/encore": "./build/core/src/encore-bootstrap.js",
-		"./cms-registry": "./build/cms-registry/src/index.js"
+		"./cms-registry": "./build/cms-registry/src/index.js",
+		"./api": "./build/api/src/index.js"
 	},
 	"scripts": {
 		"build": "tsc -b",

@@ -60,6 +60,44 @@ test("enregistre, active et expose les contributions déclaratives", async () =>
 	assert.deepEqual(inspection.blockers, []);
 });
 
+test("enregistre segments, actions et abonnements de messagerie", async () => {
+	const { registry } = await createRegistry();
+	const definitions = [
+		contribution("message-segment", "editorial.active-readers", {
+			messageSegment: {
+				resolverMethodIdentifier: "editorial.segment.active-readers",
+				maximumRecipients: 10_000,
+				purpose: { en: "Targets active readers.", "fr-FR": "Cible les lecteurs actifs." },
+			},
+		}),
+		contribution("message-action", "editorial.open-article", {
+			messageAction: {
+				methodIdentifier: "editorial.article.open",
+				requiredCapability: "editorial.article.read",
+				confirmationRequired: false,
+			},
+		}),
+		contribution("message-subscription", "editorial.publications", {
+			messageSubscription: {
+				topicIdentifier: "editorial.article.published",
+				defaultEnabled: true,
+				userControllable: true,
+			},
+		}),
+	];
+	for (const definition of definitions) {
+		await registry.discover(definition, { requester: nativeOwner });
+		await registry.register(definition, { requester: nativeOwner });
+		await registry.activate(`${definition.type}.${definition.identifier}`, {
+			requester: nativeOwner,
+		});
+	}
+	const catalog = await registry.catalog();
+	assert.equal(catalog.byType["message-segment"].length, 1);
+	assert.equal(catalog.byType["message-action"].length, 1);
+	assert.equal(catalog.byType["message-subscription"].length, 1);
+});
+
 test("valide le modèle complet et les politiques d’une contribution", async () => {
 	const { registry } = await createRegistry();
 	const definition = contribution("module", "complete.contract", {

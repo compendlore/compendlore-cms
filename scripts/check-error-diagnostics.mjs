@@ -6,8 +6,9 @@ import ts from "typescript";
 const backendDirectory = fileURLToPath(new URL("../backend/", import.meta.url));
 const repositoryDirectory = fileURLToPath(new URL("../", import.meta.url));
 const frenchDiagnostic =
-	/[À-ÿ]|\b(?:Le|La|Les|Un|Une|Ce|Cet|Cette|Ces|Seul|Seule|doit|doivent|déjà|invalide|invalides|interdit|interdite|absent|absente|inconnu|inconnue|introuvable|indisponible|ressource|accès|facteur|Erreur|échec|refusé|refusée|obligatoire|manquant|manquante|peut|peuvent|modifier|contient|contiennent|utilise|exige|bloqué|bloquée|détecté|détectée)\b/u;
+	/[À-ÿ]|\b(?:Le|La|Les|Un|Une|Ce|Cet|Cette|Ces|Seul|Seule|Il|Elle|Ils|Elles|Corps|Trop|Aucun|Aucune|doit|doivent|déjà|invalide|invalides|interdit|interdite|absent|absente|inconnu|inconnue|introuvable|indisponible|ressource|accès|facteur|Erreur|échec|refusé|refusée|obligatoire|obligatoires|manquant|manquante|peut|peuvent|modifier|contient|contiennent|utilise|exige|bloqué|bloquée|détecté|détectée)\b|\b(?:[LlDdNQ]|[Qq]u)'/u;
 const diagnosticLabelFunctions = new Set([
+	"assertValidDate",
 	"assertKnownValue",
 	"assertOptionalArray",
 	"assertRequiredArray",
@@ -23,10 +24,16 @@ for (const path of await collectTypeScriptFiles(backendDirectory)) {
 	const sourceText = await readFile(path, "utf8");
 	const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true);
 
-	function inspect(node, insideDiagnostic = false) {
+	function inspect(node, insideDiagnostic = false, insideErrorClass = false) {
+		const inErrorClass = insideErrorClass || isErrorClass(node, source);
 		const isErrorConstructor =
 			ts.isNewExpression(node) && /Error$/.test(node.expression.getText(source));
-		const inDiagnostic = insideDiagnostic || ts.isThrowStatement(node) || isErrorConstructor;
+		const isErrorSuperCall =
+			inErrorClass &&
+			ts.isCallExpression(node) &&
+			node.expression.kind === ts.SyntaxKind.SuperKeyword;
+		const inDiagnostic =
+			insideDiagnostic || ts.isThrowStatement(node) || isErrorConstructor || isErrorSuperCall;
 		if (inDiagnostic && ts.isStringLiteralLike(node) && frenchDiagnostic.test(node.text)) {
 			report(node, "exception diagnostic");
 		}
@@ -40,7 +47,7 @@ for (const path of await collectTypeScriptFiles(backendDirectory)) {
 				}
 			}
 		}
-		ts.forEachChild(node, (child) => inspect(child, inDiagnostic));
+		ts.forEachChild(node, (child) => inspect(child, inDiagnostic, inErrorClass));
 	}
 
 	function report(node, kind) {
@@ -51,6 +58,15 @@ for (const path of await collectTypeScriptFiles(backendDirectory)) {
 	}
 
 	inspect(source);
+}
+
+function isErrorClass(node, source) {
+	if (!ts.isClassDeclaration(node) && !ts.isClassExpression(node)) return false;
+	return Boolean(
+		node.heritageClauses?.some((clause) =>
+			clause.types.some((type) => /Error$/.test(type.expression.getText(source))),
+		),
+	);
 }
 
 if (failures.length > 0) {

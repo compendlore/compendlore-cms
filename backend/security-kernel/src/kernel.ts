@@ -273,7 +273,7 @@ export class SecurityKernel {
 
 export class SecurityKernelError extends Error {
 	constructor(readonly code: string) {
-		super("La politique de sécurité ne peut pas être appliquée.");
+		super("The security policy cannot be applied.");
 		this.name = "SecurityKernelError";
 	}
 }

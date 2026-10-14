@@ -49,6 +49,8 @@ const replacementPolicies = new Set<NonNullable<ContributionDefinition["replacem
 	"forbidden",
 	"same-owner",
 ]);
+const apiAudiences = ["internal", "public", "site"] as const;
+const apiHttpMethods = ["DELETE", "GET", "PATCH", "POST", "PUT"] as const;
 
 export function validateContributionDefinition(definition: ContributionDefinition): void {
 	if (!isRecord(definition)) throw invalid("The declaration is invalid.");
@@ -118,7 +120,16 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 			validateIdentifier(definition.method.requiredCapability, "method permission");
 		}
 	}
-	if (definition.endpoint) validateEndpoint(definition.endpoint);
+	if (definition.endpoint) {
+		validateEndpoint(definition.endpoint);
+		const methodKey = contributionKey("method", definition.endpoint.businessMethodIdentifier);
+		const methodDependency = definition.dependencies?.find(
+			(dependency) => dependency.contributionKey === methodKey,
+		);
+		if (!methodDependency || methodDependency.optional) {
+			throw invalid("The API endpoint must require its registered business method.");
+		}
+	}
 	if (definition.type === "connector" && !definition.connector) {
 		throw invalid("The declaration is invalid.");
 	}
@@ -308,6 +319,9 @@ function validateStatisticContract(definition: ContributionDefinition): void {
 function validateMessagingContract(definition: ContributionDefinition): void {
 	assertExclusiveContract(definition, "message-topic", "messageTopic");
 	assertExclusiveContract(definition, "message-template", "messageTemplate");
+	assertExclusiveContract(definition, "message-action", "messageAction");
+	assertExclusiveContract(definition, "message-segment", "messageSegment");
+	assertExclusiveContract(definition, "message-subscription", "messageSubscription");
 	if (definition.messageTopic) {
 		const topic = definition.messageTopic;
 		if (!isRecord(topic)) throw invalid("The declaration is invalid.");
@@ -414,12 +428,46 @@ function validateMessagingContract(definition: ContributionDefinition): void {
 			validateSafeLocalizedText(labels);
 		}
 	}
+	if (definition.messageAction) {
+		const action = definition.messageAction;
+		if (!isRecord(action)) throw invalid("The declaration is invalid.");
+		validateIdentifier(action.methodIdentifier, "message action method");
+		if (action.requiredCapability !== undefined)
+			validateIdentifier(action.requiredCapability, "message action capability");
+		if (typeof action.confirmationRequired !== "boolean")
+			throw invalid("The declaration is invalid.");
+	}
+	if (definition.messageSegment) {
+		const segment = definition.messageSegment;
+		if (!isRecord(segment)) throw invalid("The declaration is invalid.");
+		validateIdentifier(segment.resolverMethodIdentifier, "message segment resolver");
+		validateLocalizedText(segment.purpose);
+		if (
+			!Number.isSafeInteger(segment.maximumRecipients) ||
+			segment.maximumRecipients < 1 ||
+			segment.maximumRecipients > 1_000_000
+		)
+			throw invalid("The declaration is invalid.");
+	}
+	if (definition.messageSubscription) {
+		const subscription = definition.messageSubscription;
+		if (!isRecord(subscription)) throw invalid("The declaration is invalid.");
+		validateIdentifier(subscription.topicIdentifier, "message subscription topic");
+		if (
+			typeof subscription.defaultEnabled !== "boolean" ||
+			typeof subscription.userControllable !== "boolean"
+		)
+			throw invalid("The declaration is invalid.");
+	}
 }
 
 function assertExclusiveContract(
 	definition: ContributionDefinition,
 	type: ContributionDefinition["type"],
 	property:
+		| "messageAction"
+		| "messageSegment"
+		| "messageSubscription"
 		| "messageTemplate"
 		| "messageTopic"
 		| "statisticDimension"
@@ -704,6 +752,8 @@ function validateNonNegativeLimit(value: number | undefined, maximum: number, la
 }
 
 function validateEndpoint(endpoint: NonNullable<ContributionDefinition["endpoint"]>): void {
+	assertKnownValue(endpoint.audience, apiAudiences, "API audience");
+	assertKnownValue(endpoint.method, apiHttpMethods, "API HTTP method");
 	if (
 		!/^\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*)(?:\/(?:[a-z0-9][a-z0-9._-]*|:[a-z][a-z0-9]*))*$/.test(
 			endpoint.route,
@@ -729,6 +779,42 @@ function validateEndpoint(endpoint: NonNullable<ContributionDefinition["endpoint
 		) {
 			throw invalid("The declaration is invalid.");
 		}
+	}
+	if (endpoint.security) {
+		if (!semverPattern.test(endpoint.security.policyVersion))
+			throw invalid("The declaration is invalid.");
+		if (
+			endpoint.security.csrfRequired !== undefined &&
+			typeof endpoint.security.csrfRequired !== "boolean"
+		)
+			throw invalid("The declaration is invalid.");
+		if (
+			endpoint.security.replayProtection !== undefined &&
+			typeof endpoint.security.replayProtection !== "boolean"
+		)
+			throw invalid("The declaration is invalid.");
+		validatePositiveLimit(endpoint.security.multiFactorMaximumAgeSeconds, 86_400, "MFA age");
+		validatePositiveLimit(endpoint.security.maximumDepth, 32, "input depth");
+		validatePositiveLimit(endpoint.security.maximumStringLength, 1_048_576, "string length");
+		for (const origin of endpoint.security.allowedOrigins ?? []) {
+			let parsed: URL;
+			try {
+				parsed = new URL(origin);
+			} catch {
+				throw invalid("The declaration is invalid.");
+			}
+			if (
+				parsed.origin !== origin ||
+				(parsed.protocol !== "https:" &&
+					!(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname)))
+			)
+				throw invalid("The declaration is invalid.");
+		}
+		for (const field of [
+			...(endpoint.security.output?.omittedFields ?? []),
+			...(endpoint.security.output?.maskedFields ?? []),
+		])
+			if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field)) throw invalid("The declaration is invalid.");
 	}
 	validateApiSchema(endpoint.input, 0);
 	validateApiSchema(endpoint.output, 0);

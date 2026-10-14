@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { URL } from "node:url";
+import { foundation as apiFoundation } from "../backend/build/api/src/index.js";
 import { foundation } from "../backend/build/core/src/index.js";
 import { foundation as registryFoundation } from "../backend/build/cms-registry/src/index.js";
 
@@ -41,6 +42,27 @@ test("le socle technique du Registry respecte les frontières Encore et Core", a
 		registrySource,
 		/encore\.dev\/storage\/sqldb|new SQLDatabase|core\/(?:database|src\/postgres-store)/,
 	);
+});
+
+test("le socle technique de l’API relie Encore aux contrats Core et Registry", async () => {
+	const [service, endpoints, health, backendTsconfig, backendPackage, layers] = await Promise.all([
+		readFile(new URL("../backend/api/encore.service.ts", import.meta.url), "utf8"),
+		readFile(new URL("../backend/api/src/endpoints.ts", import.meta.url), "utf8"),
+		readFile(new URL("../backend/core/health.ts", import.meta.url), "utf8"),
+		readFile(new URL("../backend/tsconfig.json", import.meta.url), "utf8"),
+		readFile(new URL("../backend/package.json", import.meta.url), "utf8"),
+		readFile(new URL("../architecture.layers.json", import.meta.url), "utf8"),
+	]);
+
+	assert.equal(apiFoundation.packageName, "@compendlore/api");
+	assert.equal(apiFoundation.status, "operational");
+	assert.match(service, /new Service\("api"\)/);
+	assert.match(health, /expose:\s*true[\s\S]*?method:\s*"GET"[\s\S]*?path:\s*"\/health"/);
+	assert.match(endpoints, /ApiAudience/);
+	assert.match(endpoints, /ApiGateway/);
+	assert.match(backendTsconfig, /"include": \["\*\*\/\*\.ts"\]/);
+	assert.match(backendPackage, /"\.\/api": "\.\/build\/api\/src\/index\.js"/);
+	assert.match(layers, /"name": "api"[\s\S]*?"mayImport": \["core", "registry"\]/);
 });
 
 test("la migration fondatrice couvre les tables et protections minimales du Core", async () => {

@@ -141,7 +141,7 @@ export class AuthenticationService {
 				createdAt: this.now(),
 			};
 			if (!user.login || !user.displayName) {
-				throw new CoreError("configuration.invalid", "L'identifiant et le nom sont obligatoires.");
+				throw new CoreError("configuration.invalid", "The identifier and name are required.");
 			}
 			await this.store.createUser(user);
 			for (const capability of Object.values(CORE_CAPABILITIES)) {
@@ -437,7 +437,7 @@ export class RateLimiter {
 			return;
 		}
 		if (current.count >= this.limit) {
-			throw new CoreError("security.rate_limited", "Trop de tentatives.", { retryable: true });
+			throw new CoreError("security.rate_limited", "Too many attempts.", { retryable: true });
 		}
 		current.count += 1;
 	}

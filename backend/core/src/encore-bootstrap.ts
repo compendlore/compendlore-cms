@@ -10,6 +10,13 @@ import type { SecretProvider } from "./services.js";
 import { OutboundGateway } from "./services.js";
 import { encoreObjectStorage } from "../object-storage.js";
 import { PostgresTaskQueue } from "../task-queue.js";
+import { PostgresMessagingRepository } from "./messaging.js";
+import {
+	PostgresMessageAudienceDirectory,
+	PostgresMessageDeliveryRepository,
+} from "./message-delivery.js";
+import { PostgresNotificationTemplateRepository } from "./notification-templates.js";
+import { PostgresMessagingCampaignRepository } from "./messaging-campaigns.js";
 import {
 	InstanceIdentityCryptography,
 	SecureFileInstancePrivateKeyStore,
@@ -34,6 +41,11 @@ export async function bootstrapEncoreCore(input: {
 		instanceIdentityCryptography: new InstanceIdentityCryptography(
 			new SecureFileInstancePrivateKeyStore(input.config.instancePrivateKeyFile),
 		),
+		messagingRepository: new PostgresMessagingRepository(coreDatabase),
+		messageAudienceDirectory: new PostgresMessageAudienceDirectory(coreDatabase),
+		messageDeliveryRepository: new PostgresMessageDeliveryRepository(coreDatabase),
+		notificationTemplateRepository: new PostgresNotificationTemplateRepository(coreDatabase),
+		messagingCampaignRepository: new PostgresMessagingCampaignRepository(coreDatabase),
 		services: [coreDatabase, objectStorage, ...(input.services ?? [])],
 		objectStorage,
 		tasks: new PostgresTaskQueue(coreDatabase),

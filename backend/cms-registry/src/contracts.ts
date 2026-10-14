@@ -3,7 +3,13 @@ import type {
 	CoreJsonValue,
 	FrontendNetworkDefinition,
 } from "../../core/src/index.js";
-import type { MessageTemplateDefinition, MessageTopicDefinition } from "./messaging.js";
+import type {
+	MessageActionDefinition,
+	MessageSegmentDefinition,
+	MessageSubscriptionDefinition,
+	MessageTemplateDefinition,
+	MessageTopicDefinition,
+} from "./messaging.js";
 import type {
 	StatisticDimensionDefinition,
 	StatisticEventDefinition,
@@ -23,6 +29,9 @@ export type ContributionType =
 	| "method"
 	| "message-template"
 	| "message-topic"
+	| "message-action"
+	| "message-segment"
+	| "message-subscription"
 	| "metric"
 	| "module"
 	| "page"
@@ -46,6 +55,9 @@ export const contributionTypes = [
 	"entitlement",
 	"message-template",
 	"message-topic",
+	"message-action",
+	"message-segment",
+	"message-subscription",
 	"method",
 	"metric",
 	"module",
@@ -127,6 +139,20 @@ export interface ApiPublicErrorDefinition {
 	readonly message: Readonly<Record<string, string>>;
 }
 
+export interface ApiSecurityContractDefinition {
+	readonly policyVersion: string;
+	readonly allowedOrigins?: readonly string[];
+	readonly csrfRequired?: boolean;
+	readonly replayProtection?: boolean;
+	readonly multiFactorMaximumAgeSeconds?: number;
+	readonly maximumDepth?: number;
+	readonly maximumStringLength?: number;
+	readonly output?: {
+		readonly omittedFields?: readonly string[];
+		readonly maskedFields?: readonly string[];
+	};
+}
+
 export interface ApiEndpointContractDefinition {
 	readonly audience: ApiAudience;
 	readonly method: ApiHttpMethod;
@@ -137,6 +163,7 @@ export interface ApiEndpointContractDefinition {
 	readonly input: ApiValueSchema;
 	readonly output: ApiValueSchema;
 	readonly publicErrors?: readonly ApiPublicErrorDefinition[];
+	readonly security?: ApiSecurityContractDefinition;
 	readonly quota?: {
 		readonly limit: number;
 		readonly windowSeconds: number;
@@ -165,6 +192,9 @@ export interface ContributionDefinition {
 	readonly statisticPolicy?: StatisticPolicyDefinition;
 	readonly messageTopic?: MessageTopicDefinition;
 	readonly messageTemplate?: MessageTemplateDefinition;
+	readonly messageAction?: MessageActionDefinition;
+	readonly messageSegment?: MessageSegmentDefinition;
+	readonly messageSubscription?: MessageSubscriptionDefinition;
 	readonly payload?: CoreJsonValue;
 }
 
