@@ -337,6 +337,7 @@ test("limite les notifications aux présentations natives et au texte sûr", () 
 
 test("présente le temps récent des notifications relativement et le temps ancien localement", () => {
 	const now = Date.parse("2026-10-14T20:00:00.000Z");
+	const olderNotification = "2026-10-14T17:00:00.000Z";
 	assert.equal(
 		formatNotificationTime("2026-10-14T19:59:42.000Z", "fr-FR", now),
 		"Il y a 18 secondes",
@@ -345,9 +346,11 @@ test("présente le temps récent des notifications relativement et le temps anci
 		formatNotificationTime("2026-10-14T19:48:00.000Z", "fr-FR", now),
 		"Il y a 12 minutes",
 	);
-	assert.match(
-		formatNotificationTime("2026-10-14T17:00:00.000Z", "fr-FR", now),
-		/14 oct\. 2026, 19:00/,
+	assert.equal(
+		formatNotificationTime(olderNotification, "fr-FR", now),
+		new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(
+			new Date(olderNotification),
+		),
 	);
 });
 
