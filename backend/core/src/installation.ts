@@ -119,7 +119,7 @@ export class InstallationTokenService {
 			this.logger.write("error", "core.installation_token.clear_failed");
 			throw new CoreError(
 				"infrastructure.unavailable",
-				"Le fichier du jeton d’installation n’a pas pu être supprimé.",
+				"The required infrastructure is unavailable.",
 				{ cause: error },
 			);
 		}

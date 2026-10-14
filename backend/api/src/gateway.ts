@@ -231,7 +231,7 @@ export class ApiGateway {
 			identity = await this.authentication.authenticate(request.credentials, request.audience);
 			await this.authorize(endpoint, identity, request.audience);
 			if (!matchesSchema(endpoint.contract.input, request.body)) {
-				throw new ApiGatewayError("api.input_invalid", 400, "La requête est invalide.");
+				throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
 			}
 			const quota = endpoint.contract.quota;
 			if (
@@ -242,7 +242,7 @@ export class ApiGateway {
 					quota.windowSeconds,
 				)
 			) {
-				throw new ApiGatewayError("api.quota_exceeded", 429, "Le quota est dépassé.");
+				throw new ApiGatewayError("api.quota_exceeded", 429, "Api quota exceeded.");
 			}
 			const output = await this.registry.invokeRegisteredMethod({
 				methodIdentifier: endpoint.contract.businessMethodIdentifier,
@@ -251,7 +251,7 @@ export class ApiGateway {
 				...(request.idempotencyKey ? { idempotencyKey: request.idempotencyKey } : {}),
 			});
 			if (!matchesSchema(endpoint.contract.output, output)) {
-				throw new ApiGatewayError("api.output_invalid", 500, "La réponse métier est invalide.");
+				throw new ApiGatewayError("api.output_invalid", 500, "Api output invalid.");
 			}
 			await this.audit.record({
 				correlationId,
@@ -305,7 +305,7 @@ export class ApiGateway {
 				return { key: contribution.key, contract };
 			}
 		}
-		throw new ApiGatewayError("api.not_found", 404, "La ressource demandée est introuvable.");
+		throw new ApiGatewayError("api.not_found", 404, "Api not found.");
 	}
 
 	private async authorize(
@@ -314,28 +314,20 @@ export class ApiGateway {
 		audience: ApiAudience,
 	): Promise<void> {
 		if (!(await this.exposure.isEndpointAllowed(endpoint.key))) {
-			throw new ApiGatewayError("api.not_found", 404, "La ressource demandée est introuvable.");
+			throw new ApiGatewayError("api.not_found", 404, "Api not found.");
 		}
 		if (audience === "public" && !(await this.exposure.isPublicApiEnabled())) {
-			throw new ApiGatewayError("api.not_found", 404, "La ressource demandée est introuvable.");
+			throw new ApiGatewayError("api.not_found", 404, "Api not found.");
 		}
 		if (audience === "site" && !identity) {
-			throw new ApiGatewayError(
-				"api.authentication_required",
-				401,
-				"Une authentification est requise.",
-			);
+			throw new ApiGatewayError("api.authentication_required", 401, "Api authentication required.");
 		}
 		if (
 			endpoint.contract.requiredCapability &&
 			!identity?.capabilities.has("*") &&
 			!identity?.capabilities.has(endpoint.contract.requiredCapability)
 		) {
-			throw new ApiGatewayError(
-				"api.authorization_denied",
-				403,
-				"Cette action n’est pas autorisée.",
-			);
+			throw new ApiGatewayError("api.authorization_denied", 403, "Api authorization denied.");
 		}
 	}
 }
@@ -373,6 +365,7 @@ function publicError(
 			correlationId,
 			body: {
 				error: declared.code,
+				messageKey: declared.code,
 				message: localizedMessage(declared.message, locale),
 				correlationId,
 			},
@@ -384,8 +377,9 @@ function publicError(
 			correlationId,
 			body: {
 				error: error.code,
+				messageKey: error.code,
 				message:
-					error.httpStatus >= 500 && !detailed ? "Une erreur interne est survenue." : error.message,
+					error.httpStatus >= 500 && !detailed ? "An internal error occurred." : error.message,
 				correlationId,
 			},
 		};
@@ -395,8 +389,8 @@ function publicError(
 		correlationId,
 		body: {
 			error: "api.internal",
-			message:
-				detailed && error instanceof Error ? error.message : "Une erreur interne est survenue.",
+			messageKey: "api.internal",
+			message: detailed && error instanceof Error ? error.message : "An internal error occurred.",
 			correlationId,
 		},
 	};
@@ -420,7 +414,7 @@ function localizedMessage(
 		);
 		if (match) return match[1];
 	}
-	return messages.en ?? Object.values(messages)[0] ?? "La requête a échoué.";
+	return messages.en ?? Object.values(messages)[0] ?? "The request failed.";
 }
 
 function matchesSchema(schema: ApiValueSchema, value: unknown): boolean {
@@ -468,12 +462,12 @@ function validateBody(body: unknown): void {
 	try {
 		serialized = JSON.stringify(body);
 	} catch (error) {
-		throw new ApiGatewayError("api.input_invalid", 400, "La requête n’est pas sérialisable.", {
+		throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.", {
 			cause: error,
 		});
 	}
 	if (serialized === undefined || Buffer.byteLength(serialized, "utf8") > MAXIMUM_BODY_BYTES) {
-		throw new ApiGatewayError("api.input_invalid", 400, "La requête dépasse la taille autorisée.");
+		throw new ApiGatewayError("api.input_invalid", 400, "Api input invalid.");
 	}
 }
 

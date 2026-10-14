@@ -56,15 +56,19 @@ export class SecureConnectorNetwork implements ConnectorNetworkPort {
 					signal: AbortSignal.timeout(request.timeoutMs),
 				});
 			} catch (error) {
-				throw new CoreError("infrastructure.unavailable", "Le service externe est indisponible.", {
-					cause: error,
-					retryable: true,
-				});
+				throw new CoreError(
+					"infrastructure.unavailable",
+					"The required infrastructure is unavailable.",
+					{
+						cause: error,
+						retryable: true,
+					},
+				);
 			}
 			if (response.status >= 300 && response.status < 400) {
 				const location = response.headers.get("location");
 				if (!location || redirects === MAXIMUM_REDIRECTS) {
-					throw new CoreError("network.denied", "La redirection externe est refusée.");
+					throw new CoreError("network.denied", "Network access denied.");
 				}
 				url = new URL(location, url);
 				continue;
@@ -75,7 +79,7 @@ export class SecureConnectorNetwork implements ConnectorNetworkPort {
 				body: await readLimitedBody(response, request.maximumResponseBytes),
 			};
 		}
-		throw new CoreError("network.denied", "La chaîne de redirections est invalide.");
+		throw new CoreError("network.denied", "Network access denied.");
 	}
 }
 
@@ -161,7 +165,7 @@ export class ConnectorEngine {
 		const endpoint = input.connector.endpoints.find(
 			(candidate) => candidate.identifier === input.endpointIdentifier,
 		);
-		if (!endpoint) throw new CoreError("configuration.invalid", "L’endpoint externe est inconnu.");
+		if (!endpoint) throw new CoreError("configuration.invalid", "Invalid configuration.");
 		const connectionKey = connectorConnectionKey(input.connector.identifier, input.scope);
 		this.consumeQuota(connectionKey, input.connector.quota);
 		const cacheKey = stableCacheKey(connectionKey, endpoint.identifier, input.parameters ?? {});
@@ -203,9 +207,13 @@ export class ConnectorEngine {
 			);
 		}
 		if (!endpoint.successStatuses.includes(response.status)) {
-			throw new CoreError("infrastructure.unavailable", "Le service externe a refusé la requête.", {
-				retryable: response.status >= 500,
-			});
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+				{
+					retryable: response.status >= 500,
+				},
+			);
 		}
 		const result: ConnectorCallResult = {
 			status: response.status,
@@ -249,7 +257,7 @@ export class ConnectorEngine {
 	): Promise<{ readonly authorizationUrl: string; readonly state: string }> {
 		const authentication = requireOAuthFlow(connector.authentication, "authorization-code-pkce");
 		if (!authentication.authorizationEndpoint) {
-			throw new CoreError("configuration.invalid", "L’endpoint d’autorisation PKCE est absent.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const verifier = randomBytes(48).toString("base64url");
 		const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -284,7 +292,7 @@ export class ConnectorEngine {
 	}> {
 		const authentication = requireOAuthFlow(connector.authentication, "device-code");
 		if (!authentication.deviceAuthorizationEndpoint) {
-			throw new CoreError("configuration.invalid", "L’endpoint Device Code est absent.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const body = new URLSearchParams({
 			client_id: await this.secrets.resolve(authentication.clientIdSecretReference),
@@ -306,10 +314,7 @@ export class ConnectorEngine {
 			allowedDomains: new Set(connector.allowedDomains.map((domain) => domain.toLowerCase())),
 		});
 		if (response.status < 200 || response.status >= 300) {
-			throw new CoreError(
-				"authentication.invalid_credentials",
-				"L’autorisation Device Code a échoué.",
-			);
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		const payload = JSON.parse(Buffer.from(response.body).toString("utf8")) as unknown;
 		const deviceCode = readJsonPath(payload, "device_code");
@@ -320,7 +325,10 @@ export class ConnectorEngine {
 			typeof userCode !== "string" ||
 			typeof verificationUri !== "string"
 		) {
-			throw new CoreError("infrastructure.unavailable", "La réponse Device Code est incomplète.");
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+			);
 		}
 		const expiresIn = readJsonPath(payload, "expires_in");
 		const interval = readJsonPath(payload, "interval");
@@ -347,7 +355,7 @@ export class ConnectorEngine {
 		const key = connectorConnectionKey(input.connector.identifier, input.scope);
 		const pending = this.pendingAuthorizations.get(key);
 		if (!pending || pending.state !== input.state || pending.expiresAt <= this.now().getTime()) {
-			throw new CoreError("authorization.denied", "L’autorisation PKCE est invalide ou expirée.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		this.pendingAuthorizations.delete(key);
 		await this.tokens.set(
@@ -390,16 +398,13 @@ export class ConnectorEngine {
 		const declared = new Set(endpoint.parameters?.map((parameter) => parameter.name));
 		for (const key of Object.keys(parameters)) {
 			if (!declared.has(key))
-				throw new CoreError("configuration.invalid", `Le paramètre ${key} n’est pas déclaré.`);
+				throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		for (const parameter of endpoint.parameters ?? []) {
 			const value = parameters[parameter.name];
 			if (value === undefined) {
 				if (parameter.required)
-					throw new CoreError(
-						"configuration.invalid",
-						`Le paramètre ${parameter.name} est obligatoire.`,
-					);
+					throw new CoreError("configuration.invalid", "Invalid configuration.");
 				continue;
 			}
 			if (parameter.location === "path")
@@ -408,13 +413,13 @@ export class ConnectorEngine {
 			else if (parameter.location === "header") {
 				const name = parameter.name.toLowerCase();
 				if (name === "authorization" || name === "cookie" || name === "host") {
-					throw new CoreError("network.denied", "Cet en-tête est réservé au Core.");
+					throw new CoreError("network.denied", "Network access denied.");
 				}
 				headers[name] = String(value);
 			} else body[parameter.name] = value;
 		}
 		if (/:[a-z][a-z0-9]*/i.test(path))
-			throw new CoreError("configuration.invalid", "Un paramètre de chemin est manquant.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		await this.applyAuthentication(connector, scope, headers);
 		const url = new URL(path, ensureTrailingSlash(connector.baseUrl));
 		for (const [key, value] of query) url.searchParams.set(key, value);
@@ -475,7 +480,7 @@ export class ConnectorEngine {
 		if (authentication.flow !== "client-credentials" && !current?.refreshToken) {
 			throw new CoreError(
 				"authentication.session_expired",
-				"Le connecteur exige une autorisation utilisateur.",
+				"The session is missing, revoked, or expired.",
 			);
 		}
 		const existing = this.tokenRequests.get(key);
@@ -521,17 +526,14 @@ export class ConnectorEngine {
 			allowedDomains: new Set(connector.allowedDomains.map((domain) => domain.toLowerCase())),
 		});
 		if (response.status < 200 || response.status >= 300) {
-			throw new CoreError(
-				"authentication.invalid_credentials",
-				"L’authentification externe a échoué.",
-			);
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 		const payload = JSON.parse(Buffer.from(response.body).toString("utf8")) as unknown;
 		const accessToken = readJsonPath(payload, authentication.accessTokenPath ?? "access_token");
 		if (typeof accessToken !== "string" || !accessToken) {
 			throw new CoreError(
 				"infrastructure.unavailable",
-				"La réponse OAuth ne contient aucun jeton.",
+				"The required infrastructure is unavailable.",
 			);
 		}
 		const refreshToken = readJsonPath(payload, authentication.refreshTokenPath ?? "refresh_token");
@@ -551,7 +553,7 @@ export class ConnectorEngine {
 		const threshold = now - quota.windowSeconds * 1_000;
 		const active = (this.quota.get(connectionKey) ?? []).filter((attempt) => attempt > threshold);
 		if (active.length >= quota.limit)
-			throw new CoreError("network.denied", "Le quota du connecteur est dépassé.");
+			throw new CoreError("network.denied", "Network access denied.");
 		active.push(now);
 		this.quota.set(connectionKey, active);
 	}
@@ -575,14 +577,14 @@ async function assertSafeDestination(
 		url.password ||
 		(url.port && url.port !== "443")
 	) {
-		throw new CoreError("network.denied", "La destination externe n’est pas sûre.");
+		throw new CoreError("network.denied", "Network access denied.");
 	}
 	const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
 	if (!allowedDomains.has(hostname))
-		throw new CoreError("network.denied", "Le domaine externe n’est pas déclaré.");
+		throw new CoreError("network.denied", "Network access denied.");
 	const addresses = isIP(hostname) ? [hostname] : await resolver(hostname);
 	if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
-		throw new CoreError("network.denied", "La destination locale ou privée est interdite.");
+		throw new CoreError("network.denied", "Network access denied.");
 	}
 }
 
@@ -617,7 +619,7 @@ function isPrivateAddress(address: string): boolean {
 async function readLimitedBody(response: Response, maximumBytes: number): Promise<Uint8Array> {
 	const declared = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > maximumBytes) {
-		throw new CoreError("network.denied", "La réponse externe dépasse la taille autorisée.");
+		throw new CoreError("network.denied", "Network access denied.");
 	}
 	if (!response.body) return new Uint8Array();
 	const reader = response.body.getReader();
@@ -629,7 +631,7 @@ async function readLimitedBody(response: Response, maximumBytes: number): Promis
 		total += value.byteLength;
 		if (total > maximumBytes) {
 			await reader.cancel();
-			throw new CoreError("network.denied", "La réponse externe dépasse la taille autorisée.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 		chunks.push(value);
 	}
@@ -650,15 +652,19 @@ function parseResponse(endpoint: ConnectorEndpointDefinition, body: Uint8Array):
 	try {
 		value = JSON.parse(text) as unknown;
 	} catch (error) {
-		throw new CoreError("infrastructure.unavailable", "La réponse JSON externe est invalide.", {
-			cause: error,
-		});
+		throw new CoreError(
+			"infrastructure.unavailable",
+			"The required infrastructure is unavailable.",
+			{
+				cause: error,
+			},
+		);
 	}
 	for (const path of endpoint.response.requiredJsonPaths ?? []) {
 		if (readJsonPath(value, path) === undefined) {
 			throw new CoreError(
 				"infrastructure.unavailable",
-				`La réponse externe ne contient pas ${path}.`,
+				"The required infrastructure is unavailable.",
 			);
 		}
 	}
@@ -678,10 +684,7 @@ function requireOAuthFlow(
 	flow: Extract<ConnectorAuthentication, { kind: "oauth2" }>["flow"],
 ): Extract<ConnectorAuthentication, { kind: "oauth2" }> {
 	if (authentication.kind !== "oauth2" || authentication.flow !== flow) {
-		throw new CoreError(
-			"configuration.invalid",
-			`Le connecteur n’utilise pas le flux OAuth ${flow}.`,
-		);
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	return authentication;
 }

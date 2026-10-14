@@ -141,6 +141,7 @@ test("centralise validation, autorisation, quota et erreurs publiques", async ()
 		body: { title: "test" },
 	});
 	assert.equal(unauthenticated.status, 401);
+	assert.equal(unauthenticated.body.messageKey, "api.authentication_required");
 
 	const invalid = await gateway.invoke({
 		audience: "site",
@@ -151,6 +152,7 @@ test("centralise validation, autorisation, quota et erreurs publiques", async ()
 		credentials: { sessionToken: "session-token" },
 	});
 	assert.equal(invalid.status, 400);
+	assert.equal(invalid.body.messageKey, "api.input_invalid");
 
 	const declared = await gateway.invoke({
 		audience: "site",
@@ -162,6 +164,7 @@ test("centralise validation, autorisation, quota et erreurs publiques", async ()
 		locale: "fr-FR",
 	});
 	assert.equal(declared.status, 409);
+	assert.equal(declared.body.messageKey, "editorial.title_reserved");
 	assert.equal(declared.body.message, "Ce titre est réservé.");
 
 	await gateway.invoke({

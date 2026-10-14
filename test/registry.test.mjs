@@ -713,7 +713,7 @@ test("refuse les dérives de version et réconcilie les dépendances dans leur o
 		}),
 		consumer,
 	]);
-	assert.match(drifted.failed["module.reconcile.provider"], /nouvelle version/i);
+	assert.match(drifted.failed["module.reconcile.provider"], /new version/i);
 	assert.equal((await registry.get("module.reconcile.provider")).payload, undefined);
 
 	const upgraded = await registry.reconcile([
@@ -723,11 +723,11 @@ test("refuse les dérives de version et réconcilie les dépendances dans leur o
 	assert.deepEqual(upgraded.updated, ["module.reconcile.provider"]);
 	assert.deepEqual(upgraded.failed, {});
 	const downgrade = await registry.reconcile([consumer, provider]);
-	assert.match(downgrade.failed["module.reconcile.provider"], /ne peut pas remplacer/i);
+	assert.match(downgrade.failed["module.reconcile.provider"], /cannot replace/i);
 	assert.equal((await registry.get("module.reconcile.provider")).version, "1.1.0");
 
 	const duplicate = await registry.reconcile([consumer, consumer]);
-	assert.match(duplicate.failed["module.reconcile.consumer"], /plusieurs fois/i);
+	assert.match(duplicate.failed["module.reconcile.consumer"], /more than once/i);
 
 	const stopped = await registry.reconcile([]);
 	assert.deepEqual(stopped.disabled, ["module.reconcile.consumer", "module.reconcile.provider"]);

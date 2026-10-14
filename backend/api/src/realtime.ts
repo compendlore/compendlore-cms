@@ -72,7 +72,7 @@ export class RealtimeHub {
 
 	open(identity: RealtimeConnectionIdentity, afterSequence = 0): string {
 		if (!identity.userId.trim() || !Number.isSafeInteger(afterSequence) || afterSequence < 0) {
-			throw new ApiGatewayError("realtime.connection_invalid", 400, "La connexion est invalide.");
+			throw new ApiGatewayError("realtime.connection_invalid", 400, "Realtime connection invalid.");
 		}
 		const id = randomUUID();
 		this.connections.set(id, {
@@ -104,7 +104,7 @@ export class RealtimeHub {
 				throw new ApiGatewayError(
 					"realtime.mass_direct_forbidden",
 					400,
-					"Un message direct ne peut pas cibler tout le monde.",
+					"Realtime mass direct forbidden.",
 				);
 			}
 			if (
@@ -114,7 +114,7 @@ export class RealtimeHub {
 				throw new ApiGatewayError(
 					"realtime.direct_limit_exceeded",
 					400,
-					"Le nombre de destinataires directs est trop élevé.",
+					"Realtime direct limit exceeded.",
 				);
 			}
 		}
@@ -157,7 +157,7 @@ export class RealtimeHub {
 
 	poll(connectionId: string, limit = 100): readonly RealtimeMessage[] {
 		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
-			throw new ApiGatewayError("realtime.limit_invalid", 400, "La taille du lot est invalide.");
+			throw new ApiGatewayError("realtime.limit_invalid", 400, "Realtime limit invalid.");
 		}
 		const connection = this.requireActive(connectionId);
 		const now = this.now().getTime();
@@ -195,7 +195,7 @@ export class RealtimeHub {
 			throw new ApiGatewayError(
 				"realtime.acknowledgement_invalid",
 				404,
-				"Le message direct est inconnu.",
+				"Realtime acknowledgement invalid.",
 			);
 		}
 		delivery.acknowledgedAt = this.now().getTime();
@@ -246,7 +246,7 @@ export class RealtimeHub {
 		this.disconnectInactive();
 		const connection = this.connections.get(connectionId);
 		if (!connection) {
-			throw new ApiGatewayError("realtime.connection_closed", 410, "La connexion est fermée.");
+			throw new ApiGatewayError("realtime.connection_closed", 410, "Realtime connection closed.");
 		}
 		return connection;
 	}
@@ -254,11 +254,7 @@ export class RealtimeHub {
 
 function validateMessage(input: SendRealtimeMessageInput): void {
 	if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs < 1_000 || input.ttlMs > 604_800_000) {
-		throw new ApiGatewayError(
-			"realtime.message_invalid",
-			400,
-			"La durée de vie du message est invalide.",
-		);
+		throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 	}
 	if (input.mode === "direct") {
 		if (
@@ -266,17 +262,13 @@ function validateMessage(input: SendRealtimeMessageInput): void {
 			(!Number.isSafeInteger(input.acknowledgementTimeoutMs) ||
 				input.acknowledgementTimeoutMs < 100)
 		) {
-			throw new ApiGatewayError("realtime.message_invalid", 400, "Le délai d’accusé est invalide.");
+			throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 		}
 		if (
 			input.retryLimit !== undefined &&
 			(!Number.isSafeInteger(input.retryLimit) || input.retryLimit < 1 || input.retryLimit > 10)
 		) {
-			throw new ApiGatewayError(
-				"realtime.message_invalid",
-				400,
-				"Le nombre de tentatives est invalide.",
-			);
+			throw new ApiGatewayError("realtime.message_invalid", 400, "Realtime message invalid.");
 		}
 	}
 	JSON.stringify(input.payload);

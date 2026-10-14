@@ -298,10 +298,7 @@ export class PostgresCoreStore implements CoreStore {
 		if (result.rowCount === 1) return;
 		const existing = await this.getInstanceIdentity(identity.instanceId);
 		if (!existing || !sameInstanceIdentity(existing, identity)) {
-			throw new CoreError(
-				"lifecycle.invalid_state",
-				"L’identité cryptographique de l’instance ne peut pas être remplacée implicitement.",
-			);
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 	}
 
@@ -581,7 +578,7 @@ export class PostgresCoreStore implements CoreStore {
 				id
 		`);
 		if ((result.rowCount ?? 0) !== 1) {
-			throw new CoreError("authentication.invalid_credentials", "La passkey est invalide.");
+			throw new CoreError("authentication.invalid_credentials", "Invalid credentials.");
 		}
 	}
 
@@ -1040,7 +1037,7 @@ export class PostgresCoreStore implements CoreStore {
 	async setUserActive(userId: string, active: boolean): Promise<void> {
 		const user = await this.findUserById(userId);
 		if (user?.founder && !active) {
-			throw new CoreError("authorization.founder_protected", "Le compte fondateur est protégé.");
+			throw new CoreError("authorization.founder_protected", "The founder account is protected.");
 		}
 		await this.query(/* pgsql */ sql`
 			UPDATE core.users
@@ -1070,10 +1067,7 @@ export class PostgresCoreStore implements CoreStore {
 
 	async declareCapabilityImplication(capability: string, impliedCapability: string): Promise<void> {
 		if (capability === impliedCapability) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Une implication de capacité ne peut pas se référencer elle-même.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		await this.transaction(async () => {
 			await this.query(/* pgsql */ sql`
@@ -1111,10 +1105,7 @@ export class PostgresCoreStore implements CoreStore {
 				LIMIT 1
 			`);
 			if ((cycle.rowCount ?? 0) > 0) {
-				throw new CoreError(
-					"configuration.invalid",
-					"Une implication de capacité ne peut pas créer de cycle.",
-				);
+				throw new CoreError("configuration.invalid", "Invalid configuration.");
 			}
 			await this.query(/* pgsql */ sql`
 				INSERT INTO core.capability_implications (
@@ -1151,10 +1142,7 @@ export class PostgresCoreStore implements CoreStore {
 
 	async declareRoleIncompatibility(firstRoleId: string, secondRoleId: string): Promise<void> {
 		if (firstRoleId === secondRoleId) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Un rôle ne peut pas être incompatible avec lui-même.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const [lowerRoleId, upperRoleId] =
 			firstRoleId < secondRoleId ? [firstRoleId, secondRoleId] : [secondRoleId, firstRoleId];
@@ -1172,10 +1160,7 @@ export class PostgresCoreStore implements CoreStore {
 				LIMIT 1
 			`);
 			if ((conflict.rowCount ?? 0) > 0) {
-				throw new CoreError(
-					"configuration.invalid",
-					"Ces rôles sont déjà affectés ensemble à un utilisateur.",
-				);
+				throw new CoreError("configuration.invalid", "Invalid configuration.");
 			}
 			await this.query(/* pgsql */ sql`
 				INSERT INTO core.role_incompatibilities (lower_role_id, upper_role_id)
@@ -1206,10 +1191,7 @@ export class PostgresCoreStore implements CoreStore {
 				LIMIT 1
 			`);
 			if ((incompatible.rowCount ?? 0) > 0) {
-				throw new CoreError(
-					"authorization.denied",
-					"Ce rôle est incompatible avec un rôle existant.",
-				);
+				throw new CoreError("authorization.denied", "Access denied.");
 			}
 			await this.query(/* pgsql */ sql`
 				INSERT INTO core.user_roles (user_id, role_id)
@@ -1454,7 +1436,10 @@ export class PostgresCoreStore implements CoreStore {
 		`);
 		const row = result.rows[0];
 		if (!row)
-			throw new CoreError("infrastructure.unavailable", "L’événement n’a pas été persisté.");
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+			);
 		return mapEvent(row);
 	}
 
@@ -1505,7 +1490,7 @@ export class PostgresCoreStore implements CoreStore {
 		`);
 		const row = result.rows[0];
 		if (!row) {
-			throw new CoreError("authorization.denied", "Le consommateur appartient à un autre module.");
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		return mapEventConsumer(row);
 	}
@@ -1584,7 +1569,7 @@ export class PostgresCoreStore implements CoreStore {
 				c.identifier
 		`);
 		if (result.rowCount !== 1) {
-			throw new CoreError("lifecycle.invalid_state", "Le curseur du consommateur est invalide.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 	}
 
@@ -1604,7 +1589,7 @@ export class PostgresCoreStore implements CoreStore {
 				identifier
 		`);
 		if (result.rowCount !== 1) {
-			throw new CoreError("lifecycle.invalid_state", "Le consommateur d’événements est inconnu.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 	}
 
@@ -1647,7 +1632,7 @@ function mapEvent(row: EventRow): CoreEvent {
 	if (!row.payload_checksum || !row.signature) {
 		throw new CoreError(
 			"infrastructure.unavailable",
-			"L’événement persistant ne possède pas de preuve d’intégrité.",
+			"The required infrastructure is unavailable.",
 		);
 	}
 	return {

@@ -41,10 +41,7 @@ export class CoreRestorationService {
 		validateBundle(bundle);
 		await this.store.transaction(async () => {
 			if ((await this.store.countUsers()) !== 0) {
-				throw new CoreError(
-					"lifecycle.invalid_state",
-					"La restauration Core exige une instance sans compte.",
-				);
+				throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 			}
 			for (const user of bundle.users) await this.store.createUser(user);
 			for (const email of bundle.emails) await this.store.upsertEmailAddress(email);
@@ -81,10 +78,10 @@ function validateBundle(bundle: CoreRestorationBundle): void {
 	const userIds = new Set(bundle.users.map((user) => user.id));
 	const roleIds = new Set(bundle.roles.map((role) => role.id));
 	if (userIds.size !== bundle.users.length || roleIds.size !== bundle.roles.length) {
-		throw new CoreError("configuration.invalid", "La sauvegarde Core contient des doublons.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (bundle.users.filter((user) => user.founder).length > 1) {
-		throw new CoreError("configuration.invalid", "La sauvegarde contient plusieurs fondateurs.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (
 		bundle.emails.some((email) => !userIds.has(email.userId)) ||
@@ -99,9 +96,6 @@ function validateBundle(bundle: CoreRestorationBundle): void {
 				!roleIds.has(incompatibility.firstRoleId) || !roleIds.has(incompatibility.secondRoleId),
 		)
 	) {
-		throw new CoreError(
-			"configuration.invalid",
-			"La sauvegarde Core contient une référence inconnue.",
-		);
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }

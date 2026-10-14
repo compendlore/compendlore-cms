@@ -61,17 +61,17 @@ export class CoreRegistryPort implements RegistryCorePort {
 				candidate.version,
 			)
 		) {
-			throw new CoreError("configuration.invalid", "La version de contribution est invalide.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		for (const capability of candidate.requiredCapabilities) {
 			validateRegistryIdentifier(capability, "capability");
 		}
 		const serialized = JSON.stringify(candidate.payload);
 		if (serialized === undefined) {
-			throw new CoreError("configuration.invalid", "La contribution n’est pas sérialisable.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		if (Buffer.byteLength(serialized, "utf8") > this.maximumPayloadBytes) {
-			throw new CoreError("configuration.invalid", "La contribution dépasse la taille autorisée.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 	}
 
@@ -116,6 +116,6 @@ export class CoreRegistryRuntime {
 
 function validateRegistryIdentifier(value: string, field: string): void {
 	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value) || value.length > 160) {
-		throw new CoreError("configuration.invalid", `L’identifiant ${field} est invalide.`);
+		throw new CoreError("configuration.invalid", `The ${field} identifier is invalid.`);
 	}
 }

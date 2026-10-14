@@ -22,7 +22,7 @@ export class ContributionGraph {
 			if (visiting.has(key)) {
 				throw new RegistryError(
 					"registry.dependency_cycle",
-					`Cycle de dépendances détecté : ${[...path, key].join(" -> ")}.`,
+					"A registry dependency cycle was detected.",
 				);
 			}
 			if (visited.has(key)) return;
@@ -112,7 +112,7 @@ export class ContributionGraph {
 		if (!contribution) {
 			throw new RegistryError(
 				"registry.dependency_blocked",
-				`La contribution ${key} est introuvable.`,
+				"A registry dependency blocked the operation.",
 			);
 		}
 		return contribution;
@@ -133,10 +133,7 @@ export function satisfiesVersion(version: string, range: string): boolean {
 			normalized,
 		);
 	if (!match) {
-		throw new RegistryError(
-			"registry.contract_invalid",
-			`La plage de version ${range} n’est pas prise en charge.`,
-		);
+		throw new RegistryError("registry.contract_invalid", "The registry contract is invalid.");
 	}
 	const [, operator, minimum] = match;
 	const versionPrerelease = version.split("+")[0]!.includes("-");

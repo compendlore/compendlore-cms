@@ -209,7 +209,7 @@ test("bloque les destinations privées, les redirections locales et les réponse
 				maximumResponseBytes: 100,
 				allowedDomains: new Set(["api.example.com"]),
 			}),
-		/destination locale ou privée/i,
+		{ code: "network.denied" },
 	);
 	assert.equal(fetchCalls, 0);
 
@@ -227,7 +227,7 @@ test("bloque les destinations privées, les redirections locales et les réponse
 				maximumResponseBytes: 10,
 				allowedDomains: new Set(["api.example.com"]),
 			}),
-		/dépasse la taille autorisée/i,
+		{ code: "network.denied" },
 	);
 });
 
@@ -235,7 +235,7 @@ test("bloque un appel frontend non déclaré et produit une CSP contrôlée", ()
 	const policy = new FrontendNetworkPolicy();
 	assert.throws(
 		() => policy.assertAllowed("addon.maps", new URL("https://tiles.example.com/map"), "GET"),
-		/n’est pas déclaré/i,
+		{ code: "network.denied" },
 	);
 	assert.throws(
 		() =>
@@ -249,7 +249,7 @@ test("bloque un appel frontend non déclaré et produit une CSP contrôlée", ()
 				capabilityGranted: true,
 				consentGranted: false,
 			}),
-		/consentement réseau/i,
+		{ code: "authorization.denied" },
 	);
 	policy.register({
 		definition: {
@@ -265,6 +265,6 @@ test("bloque un appel frontend non déclaré et produit une CSP contrôlée", ()
 	assert.equal(policy.contentSecurityPolicy(), "'self' https://tiles.example.com");
 	assert.throws(
 		() => policy.assertAllowed("addon.maps", new URL("https://evil.example.net/map"), "GET"),
-		/domaine frontend n’est pas déclaré/i,
+		{ code: "network.denied" },
 	);
 });

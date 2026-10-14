@@ -30,7 +30,7 @@ export class CoreRuntime {
 
 	async start(): Promise<void> {
 		if (!(this.currentState === "created" || this.currentState === "stopped")) {
-			throw new CoreError("lifecycle.invalid_state", "Le Core ne peut pas démarrer dans cet état.");
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		this.currentState = "starting";
 		try {

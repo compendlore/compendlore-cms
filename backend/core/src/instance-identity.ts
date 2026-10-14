@@ -48,7 +48,7 @@ export class CoreInstanceIdentityService {
 		if (!persisted) {
 			throw new CoreError(
 				"infrastructure.unavailable",
-				"L’identité cryptographique de l’instance n’a pas été persistée.",
+				"The required infrastructure is unavailable.",
 			);
 		}
 		this.assertMatches(persisted, cryptographicIdentity);
@@ -58,10 +58,7 @@ export class CoreInstanceIdentityService {
 
 	current(): CoreInstanceIdentity {
 		if (!this.identity) {
-			throw new CoreError(
-				"lifecycle.invalid_state",
-				"L’identité cryptographique de l’instance n’est pas initialisée.",
-			);
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 		return cloneIdentity(this.identity);
 	}
@@ -104,24 +101,21 @@ export class CoreInstanceIdentityService {
 			stored.assurance !== cryptographic.assurance ||
 			!Buffer.from(stored.publicKey).equals(Buffer.from(cryptographic.publicKey))
 		) {
-			throw new CoreError(
-				"lifecycle.invalid_state",
-				"La clé privée disponible ne correspond pas à l’identité publique de l’instance.",
-			);
+			throw new CoreError("lifecycle.invalid_state", "The resource is in an invalid state.");
 		}
 	}
 }
 
 function assertChallenge(challenge: InstanceIdentityChallenge, now: Date): void {
 	if (!challenge.audience.trim() || challenge.audience.length > 255) {
-		throw new CoreError("configuration.invalid", "L’audience du défi est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (!/^[A-Za-z0-9_-]{16,256}$/u.test(challenge.nonce)) {
-		throw new CoreError("configuration.invalid", "Le nonce du défi est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	const remaining = challenge.expiresAt.getTime() - now.getTime();
 	if (remaining <= 0 || remaining > 300_000) {
-		throw new CoreError("configuration.invalid", "L’expiration du défi est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
 

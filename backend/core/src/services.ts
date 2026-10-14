@@ -15,14 +15,15 @@ export class EnvironmentSecretProvider implements SecretProvider {
 
 	async resolve(reference: string): Promise<string> {
 		if (!reference.startsWith("env:")) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Le fournisseur de secrets ne reconnaît pas cette référence.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 		const key = reference.slice(4);
 		const value = this.environment[key];
-		if (!key || !value) throw new CoreError("infrastructure.unavailable", "Secret indisponible.");
+		if (!key || !value)
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+			);
 		return value;
 	}
 }
@@ -89,7 +90,7 @@ export class CommunicationService {
 		message: Omit<Communication, "id" | "createdAt">,
 	): Promise<{ readonly message: Communication; readonly recipients: readonly string[] }> {
 		if (!message.topic.trim())
-			throw new CoreError("configuration.invalid", "Le sujet est obligatoire.");
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		if (message.mode === "direct") this.validateDirectTarget(message.target);
 		const communication: Communication = {
 			...message,
@@ -101,19 +102,13 @@ export class CommunicationService {
 
 	private validateDirectTarget(target: CommunicationTarget): void {
 		if (target.kind === "all" || target.kind === "role") {
-			throw new CoreError(
-				"authorization.denied",
-				"Un envoi direct ne peut pas être un envoi de masse.",
-			);
+			throw new CoreError("authorization.denied", "Access denied.");
 		}
 		if (
 			target.kind === "users" &&
 			(target.ids.length === 0 || target.ids.length > this.maximumDirectUsers)
 		) {
-			throw new CoreError(
-				"configuration.invalid",
-				"Le nombre de destinataires directs est invalide.",
-			);
+			throw new CoreError("configuration.invalid", "Invalid configuration.");
 		}
 	}
 }
@@ -155,10 +150,10 @@ export class OutboundGateway {
 
 	async execute(input: OutboundRequest): Promise<Response> {
 		if (input.url.protocol !== "https:" || input.url.username || input.url.password) {
-			throw new CoreError("network.denied", "La destination externe n'est pas sûre.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 		if (!this.allowedHosts.has(input.url.hostname.toLowerCase())) {
-			throw new CoreError("network.denied", "La destination externe n'est pas autorisée.");
+			throw new CoreError("network.denied", "Network access denied.");
 		}
 		try {
 			return await this.request(input.url, {
@@ -169,10 +164,14 @@ export class OutboundGateway {
 				redirect: "error",
 			});
 		} catch (error) {
-			throw new CoreError("infrastructure.unavailable", "L'API externe est indisponible.", {
-				cause: error,
-				retryable: true,
-			});
+			throw new CoreError(
+				"infrastructure.unavailable",
+				"The required infrastructure is unavailable.",
+				{
+					cause: error,
+					retryable: true,
+				},
+			);
 		}
 	}
 }
@@ -213,22 +212,22 @@ export class InMemoryTaskQueue implements TaskQueue {
 
 export function validateStorageKey(key: string): string {
 	if (!/^[a-z0-9][a-z0-9/_\-.]{0,511}$/i.test(key) || key.includes("..") || key.startsWith("/")) {
-		throw new CoreError("storage.invalid_key", "La clé de stockage est invalide.");
+		throw new CoreError("storage.invalid_key", "The storage key is invalid.");
 	}
 	return key;
 }
 
 export function validateScheduledTask(task: Omit<ScheduledTask, "id">): void {
 	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(task.type) || task.type.length > 160) {
-		throw new CoreError("configuration.invalid", "Le type de tâche est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	if (!(task.executeAt instanceof Date) || !Number.isFinite(task.executeAt.getTime())) {
-		throw new CoreError("configuration.invalid", "La date d’exécution est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 	try {
 		JSON.stringify(task.payload);
 	} catch (error) {
-		throw new CoreError("configuration.invalid", "La charge utile de la tâche est invalide.", {
+		throw new CoreError("configuration.invalid", "Invalid configuration.", {
 			cause: error,
 		});
 	}
@@ -236,6 +235,6 @@ export function validateScheduledTask(task: Omit<ScheduledTask, "id">): void {
 
 export function validateTaskLimit(limit: number): void {
 	if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 500) {
-		throw new CoreError("configuration.invalid", "La taille du lot de tâches est invalide.");
+		throw new CoreError("configuration.invalid", "Invalid configuration.");
 	}
 }
