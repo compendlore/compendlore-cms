@@ -77,6 +77,7 @@ until the release manager assigns a version and publication date.
 - Overrode the vulnerable transitive KaTeX version.
 - Prevented declarative schema contributions from supplying arbitrary SQL, unregistered
   transformations, unsafe identifiers, forged execution decisions, or altered plans.
+- Prevented the pull-request artifact step from archiving its own output file.
 
 ### Release notes
 

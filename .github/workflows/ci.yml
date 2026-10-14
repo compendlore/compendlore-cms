@@ -25,13 +25,11 @@ jobs:
       - run: npm ci
       - run: npm run ci
       - name: Prepare temporary build artifact
-        run:
-          tar --exclude=node_modules --exclude=.git -czf "${{ github.event.repository.name }}-${{
-          github.sha }}.tar.gz" build packages apps backend frontend 2>/dev/null || tar
-          --exclude=node_modules --exclude=.git -czf "${{ github.event.repository.name }}-${{
-          github.sha }}.tar.gz" .
+        run: >-
+          tar --exclude=node_modules --exclude=.git -czf "${RUNNER_TEMP}/${{
+          github.event.repository.name }}-${{ github.sha }}.tar.gz" .
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.event.repository.name }}-${{ github.sha }}"
-          path: "${{ github.event.repository.name }}-${{ github.sha }}.tar.gz"
+          path: "${{ runner.temp }}/${{ github.event.repository.name }}-${{ github.sha }}.tar.gz"
           retention-days: 7
