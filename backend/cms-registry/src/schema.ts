@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
 	fingerprintSchema,
+	schemaPlanIntegrity,
+	schemaValueTypes,
 	type CoreJsonValue,
 	type PhysicalColumn,
 	type PhysicalForeignKey,
@@ -113,6 +115,10 @@ const builtInTransformers = new Set([
 	"text.to-json",
 	"text.uppercase",
 ]);
+const ownerKinds = new Set(["addon", "core", "instance", "native-module"]);
+const withdrawalPolicies = new Set(["archive", "block-uninstall", "delete", "preserve-data"]);
+const columnTypes = new Set<SchemaValueType>(schemaValueTypes);
+const foreignKeyDeleteActions = new Set(["cascade", "restrict", "set-null"]);
 
 export class SchemaPlanner {
 	constructor(private readonly transformers: ReadonlySet<string> = builtInTransformers) {}
@@ -131,13 +137,7 @@ export class SchemaPlanner {
 		const destructive = operations.some((operation) =>
 			["alter-column", "drop-column", "drop-table", "replace-primary-key"].includes(operation.kind),
 		);
-		if (destructive && !options.allowDestructive) {
-			throw new RegistryError(
-				"registry.contract_invalid",
-				"Le changement de schéma est destructeur et exige une autorisation explicite.",
-			);
-		}
-		return {
+		const unsignedPlan: Omit<SchemaPlan, "integrity"> = {
 			id: randomUUID(),
 			contributionKey: contribution.contributionKey,
 			resourceName: contribution.schema.name,
@@ -145,11 +145,13 @@ export class SchemaPlanner {
 			ownerIdentifier: contribution.owner.identifier,
 			version: contribution.version,
 			fingerprint: fingerprintSchema(asJson(contribution.schema)),
+			observedFingerprint: fingerprintSchema(asJson(observed ?? null)),
 			desiredState: desiredPlanState(contribution, desiredState),
 			operations,
 			destructive,
 			generatedAt: new Date(),
 		};
+		return { ...unsignedPlan, integrity: schemaPlanIntegrity(unsignedPlan) };
 	}
 }
 
@@ -163,13 +165,20 @@ export class DeclarativeSchemaManager {
 		contribution: TableSchemaContribution,
 		options: SchemaPlanningOptions = {},
 	): Promise<{ readonly plan: SchemaPlan; readonly journal: SchemaJournalEntry }> {
-		const observed = await this.core.inspect(contribution.schema.name);
-		const plan = this.planner.plan(contribution, observed, options);
+		const plan = await this.preview(contribution, options);
 		const journal = await this.core.apply({
 			plan,
 			destructiveApproved: options.allowDestructive ?? false,
 		});
 		return { plan, journal };
+	}
+
+	async preview(
+		contribution: TableSchemaContribution,
+		options: SchemaPlanningOptions = {},
+	): Promise<SchemaPlan> {
+		const observed = await this.core.inspect(contribution.schema.name);
+		return this.planner.plan(contribution, observed, options);
 	}
 
 	async withdraw(
@@ -377,15 +386,41 @@ function validateTableContribution(
 	contribution: TableSchemaContribution,
 	transformers: ReadonlySet<string>,
 ): void {
+	if (!isRecord(contribution)) throw invalid("La contribution de table doit être un objet.");
 	validateRegistryIdentifier(contribution.contributionKey);
+	if (!isRecord(contribution.owner) || !ownerKinds.has(contribution.owner.kind)) {
+		throw invalid("Le propriétaire de la table est invalide.");
+	}
 	validateRegistryIdentifier(contribution.owner.identifier);
-	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(contribution.version)) {
+	if (!withdrawalPolicies.has(contribution.withdrawalPolicy)) {
+		throw invalid("La politique de retrait de la table est invalide.");
+	}
+	if (
+		typeof contribution.version !== "string" ||
+		!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(contribution.version)
+	) {
 		throw invalid("La version de table est invalide.");
 	}
 	const definition = contribution.schema;
+	if (!isRecord(definition)) throw invalid("Le schéma de table doit être un objet.");
 	validateSqlIdentifier(definition.name);
+	assertRequiredArray(definition.columns, "colonnes");
 	if (definition.columns.length === 0)
 		throw invalid("Une table doit posséder au moins une colonne.");
+	if (definition.columns.length > 512) throw invalid("Une table déclare trop de colonnes.");
+	for (const column of definition.columns) {
+		if (!isRecord(column)) throw invalid("Une colonne doit être un objet.");
+	}
+	assertOptionalArray(definition.indexes, "index");
+	assertOptionalArray(definition.foreignKeys, "relations");
+	assertOptionalArray(definition.transformations, "transformations");
+	if ((definition.indexes?.length ?? 0) > 512) throw invalid("Une table déclare trop d’index.");
+	if ((definition.foreignKeys?.length ?? 0) > 256) {
+		throw invalid("Une table déclare trop de relations.");
+	}
+	if ((definition.transformations?.length ?? 0) > 512) {
+		throw invalid("Une table déclare trop de transformations.");
+	}
 	const columns = uniqueIdentifiers(
 		definition.columns.map((column) => column.name),
 		"colonne",
@@ -402,7 +437,16 @@ function validateTableContribution(
 		"index",
 	);
 	for (const index of definition.indexes ?? []) {
-		if (index.columns.length === 0 || index.columns.some((column) => !columns.has(column))) {
+		if (!isRecord(index)) throw invalid("Un index doit être un objet.");
+		assertRequiredArray(index.columns, "colonnes d’index");
+		if (index.unique !== undefined && typeof index.unique !== "boolean") {
+			throw invalid(`L’unicité de l’index ${index.name} est invalide.`);
+		}
+		if (
+			index.columns.length === 0 ||
+			new Set(index.columns).size !== index.columns.length ||
+			index.columns.some((column) => typeof column !== "string" || !columns.has(column))
+		) {
 			throw invalid(`L’index ${index.name} référence une colonne invalide.`);
 		}
 	}
@@ -411,15 +455,31 @@ function validateTableContribution(
 		"relation",
 	);
 	for (const foreignKey of definition.foreignKeys ?? []) {
+		if (!isRecord(foreignKey)) throw invalid("Une relation doit être un objet.");
 		validateSqlIdentifier(foreignKey.targetTable);
+		assertRequiredArray(foreignKey.columns, "colonnes de relation");
+		assertRequiredArray(foreignKey.targetColumns, "colonnes de relation cible");
+		if (foreignKey.onDelete !== undefined && !foreignKeyDeleteActions.has(foreignKey.onDelete)) {
+			throw invalid(`L’action de suppression de la relation ${foreignKey.name} est invalide.`);
+		}
 		if (
 			foreignKey.columns.length === 0 ||
 			foreignKey.columns.length !== foreignKey.targetColumns.length ||
-			foreignKey.columns.some((column) => !columns.has(column))
+			new Set(foreignKey.columns).size !== foreignKey.columns.length ||
+			new Set(foreignKey.targetColumns).size !== foreignKey.targetColumns.length ||
+			foreignKey.columns.some((column) => typeof column !== "string" || !columns.has(column))
 		) {
 			throw invalid(`La relation ${foreignKey.name} est invalide.`);
 		}
 		foreignKey.targetColumns.forEach(validateSqlIdentifier);
+		if (
+			foreignKey.onDelete === "set-null" &&
+			foreignKey.columns.some(
+				(name) => definition.columns.find((column) => column.name === name)?.nullable !== true,
+			)
+		) {
+			throw invalid(`La relation ${foreignKey.name} exige des colonnes locales nullables.`);
+		}
 	}
 	for (const transformation of definition.transformations ?? []) {
 		validateTransformation(transformation, transformers);
@@ -428,19 +488,88 @@ function validateTableContribution(
 
 function validateColumn(column: TableColumnDefinition): void {
 	validateSqlIdentifier(column.name);
-	if (column.type === "varchar" && (!column.length || column.length > 10_000)) {
-		throw invalid(`La longueur de ${column.name} est invalide.`);
-	}
-	if (column.type === "decimal") {
-		if (!column.precision || column.precision > 1_000 || (column.scale ?? 0) > column.precision) {
-			throw invalid(`La précision de ${column.name} est invalide.`);
+	if (!columnTypes.has(column.type)) throw invalid(`Le type de ${column.name} est interdit.`);
+	for (const [attribute, value] of [
+		["nullable", column.nullable],
+		["unique", column.unique],
+		["primary", column.primary],
+	] as const) {
+		if (value !== undefined && typeof value !== "boolean") {
+			throw invalid(`L’attribut ${attribute} de ${column.name} est invalide.`);
 		}
 	}
-	if (column.defaultValue?.kind === "now" && !["date", "timestamp"].includes(column.type)) {
-		throw invalid(`La valeur now n’est pas compatible avec ${column.name}.`);
+	if (
+		column.type === "varchar" &&
+		(!Number.isSafeInteger(column.length) || column.length! < 1 || column.length! > 10_000)
+	) {
+		throw invalid(`La longueur de ${column.name} est invalide.`);
 	}
-	if (column.defaultValue?.kind === "uuid" && column.type !== "uuid") {
-		throw invalid(`La valeur uuid n’est pas compatible avec ${column.name}.`);
+	if (column.type !== "varchar" && column.length !== undefined) {
+		throw invalid(`La longueur de ${column.name} n’est pas applicable à son type.`);
+	}
+	if (column.type === "decimal") {
+		if (
+			!Number.isSafeInteger(column.precision) ||
+			column.precision! < 1 ||
+			column.precision! > 1_000 ||
+			!Number.isSafeInteger(column.scale ?? 0) ||
+			(column.scale ?? 0) < 0 ||
+			(column.scale ?? 0) > column.precision!
+		) {
+			throw invalid(`La précision de ${column.name} est invalide.`);
+		}
+	} else if (column.precision !== undefined || column.scale !== undefined) {
+		throw invalid(`La précision de ${column.name} n’est pas applicable à son type.`);
+	}
+	validateColumnDefault(column);
+}
+
+function validateColumnDefault(column: TableColumnDefinition): void {
+	if (column.defaultValue === undefined) return;
+	if (!isRecord(column.defaultValue))
+		throw invalid(`La valeur par défaut de ${column.name} est invalide.`);
+	if (column.defaultValue.kind === "now") {
+		if (!["date", "timestamp"].includes(column.type)) {
+			throw invalid(`La valeur now n’est pas compatible avec ${column.name}.`);
+		}
+		return;
+	}
+	if (column.defaultValue.kind === "uuid") {
+		if (column.type !== "uuid") {
+			throw invalid(`La valeur uuid n’est pas compatible avec ${column.name}.`);
+		}
+		return;
+	}
+	if (column.defaultValue.kind !== "literal" || !("value" in column.defaultValue)) {
+		throw invalid(`La valeur par défaut de ${column.name} utilise un type interdit.`);
+	}
+	assertJsonValue(column.defaultValue.value);
+	const value = column.defaultValue.value;
+	if (value === null) {
+		if (column.primary || column.nullable === false) {
+			throw invalid(`La valeur nulle n’est pas compatible avec ${column.name}.`);
+		}
+		return;
+	}
+	const compatible =
+		(column.type === "boolean" && typeof value === "boolean") ||
+		(column.type === "integer" &&
+			typeof value === "number" &&
+			Number.isSafeInteger(value) &&
+			value >= -2_147_483_648 &&
+			value <= 2_147_483_647) ||
+		(column.type === "bigint" && typeof value === "number" && Number.isSafeInteger(value)) ||
+		(column.type === "decimal" && typeof value === "number" && Number.isFinite(value)) ||
+		column.type === "json" ||
+		(["text", "varchar"].includes(column.type) && typeof value === "string") ||
+		(column.type === "uuid" &&
+			typeof value === "string" &&
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) ||
+		(column.type === "date" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) ||
+		(column.type === "timestamp" && typeof value === "string" && !Number.isNaN(Date.parse(value)));
+	if (!compatible) throw invalid(`La valeur par défaut n’est pas compatible avec ${column.name}.`);
+	if (column.type === "varchar" && typeof value === "string" && value.length > column.length!) {
+		throw invalid(`La valeur par défaut dépasse la longueur de ${column.name}.`);
 	}
 }
 
@@ -448,34 +577,74 @@ function validateTransformation(
 	transformation: TableTransformation,
 	transformers: ReadonlySet<string>,
 ): void {
+	if (!isRecord(transformation)) throw invalid("Une transformation doit être un objet.");
 	const batchSize = "batchSize" in transformation ? (transformation.batchSize ?? 1_000) : 1_000;
-	if (batchSize < 1 || batchSize > 100_000) throw invalid("La taille de lot est invalide.");
+	if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 100_000) {
+		throw invalid("La taille de lot est invalide.");
+	}
 	switch (transformation.kind) {
 		case "rename":
 		case "copy":
 			validateSqlIdentifier(transformation.from);
 			validateSqlIdentifier(transformation.to);
+			if (transformation.from === transformation.to) {
+				throw invalid("Une transformation doit utiliser deux colonnes distinctes.");
+			}
 			return;
 		case "fill":
 			validateSqlIdentifier(transformation.column);
+			assertJsonValue(transformation.value);
 			return;
 		case "convert":
 			validateSqlIdentifier(transformation.column);
-			if (!transformers.has(transformation.transformer)) {
-				throw invalid(`Le transformateur ${transformation.transformer} n’est pas enregistré.`);
+			if (
+				typeof transformation.transformer !== "string" ||
+				!transformers.has(transformation.transformer)
+			) {
+				throw invalid("Le transformateur demandé n’est pas enregistré.");
 			}
 			return;
-		case "merge":
-			if (transformation.sources.length < 2) throw invalid("Une fusion exige deux sources.");
+		case "merge": {
+			assertRequiredArray(transformation.sources, "sources de fusion");
+			if (
+				transformation.sources.length < 2 ||
+				new Set(transformation.sources).size !== transformation.sources.length
+			) {
+				throw invalid("Une fusion exige au moins deux sources distinctes.");
+			}
 			transformation.sources.forEach(validateSqlIdentifier);
 			validateSqlIdentifier(transformation.target);
+			if (transformation.sources.includes(transformation.target)) {
+				throw invalid("La cible d’une fusion doit être distincte de ses sources.");
+			}
+			validateSeparator(transformation.separator, true);
 			return;
-		case "split":
+		}
+		case "split": {
 			validateSqlIdentifier(transformation.source);
-			if (transformation.targets.length < 2 || !transformation.separator) {
-				throw invalid("Une séparation exige des cibles et un séparateur.");
+			assertRequiredArray(transformation.targets, "cibles de séparation");
+			if (
+				transformation.targets.length < 2 ||
+				new Set(transformation.targets).size !== transformation.targets.length
+			) {
+				throw invalid("Une séparation exige au moins deux cibles distinctes.");
 			}
 			transformation.targets.forEach(validateSqlIdentifier);
+			if (transformation.targets.includes(transformation.source)) {
+				throw invalid("Les cibles d’une séparation doivent être distinctes de la source.");
+			}
+			validateSeparator(transformation.separator, false);
+			return;
+		}
+		default:
+			throw invalid("Le type de transformation est interdit.");
+	}
+}
+
+function validateSeparator(value: unknown, optional: boolean): void {
+	if (optional && value === undefined) return;
+	if (typeof value !== "string" || (!optional && value.length === 0) || value.length > 256) {
+		throw invalid("Le séparateur de transformation est invalide.");
 	}
 }
 
@@ -641,14 +810,57 @@ function uniqueIdentifiers(values: readonly string[], label: string): ReadonlySe
 	return unique;
 }
 
-function validateSqlIdentifier(value: string): void {
-	if (!/^[a-z][a-z0-9_]{0,62}$/.test(value))
-		throw invalid(`L’identifiant SQL ${value} est invalide.`);
+function validateSqlIdentifier(value: unknown): asserts value is string {
+	if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,62}$/.test(value)) {
+		throw invalid("Un identifiant SQL est invalide.");
+	}
 }
 
-function validateRegistryIdentifier(value: string): void {
-	if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value) || value.length > 160)
-		throw invalid(`L’identifiant ${value} est invalide.`);
+function validateRegistryIdentifier(value: unknown): asserts value is string {
+	if (
+		typeof value !== "string" ||
+		!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value) ||
+		value.length > 160
+	) {
+		throw invalid("Un identifiant de registre est invalide.");
+	}
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertRequiredArray(value: unknown, label: string): asserts value is readonly unknown[] {
+	if (!Array.isArray(value)) throw invalid(`La déclaration ${label} doit être une liste.`);
+}
+
+function assertOptionalArray(value: unknown, label: string): void {
+	if (value !== undefined && !Array.isArray(value)) {
+		throw invalid(`La déclaration ${label} doit être une liste.`);
+	}
+}
+
+function assertJsonValue(value: unknown, seen = new Set<object>()): asserts value is CoreJsonValue {
+	if (value === null || typeof value === "boolean" || typeof value === "string") return;
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) throw invalid("Une valeur littérale doit être un nombre fini.");
+		return;
+	}
+	if (typeof value !== "object") throw invalid("Une valeur littérale doit être sérialisable.");
+	if (seen.has(value)) throw invalid("Une valeur littérale contient un cycle.");
+	seen.add(value);
+	if (Array.isArray(value)) {
+		for (const item of value) assertJsonValue(item, seen);
+	} else {
+		const prototype = Object.getPrototypeOf(value) as object | null;
+		if (prototype !== Object.prototype && prototype !== null) {
+			throw invalid("Une valeur littérale doit être un objet JSON simple.");
+		}
+		for (const item of Object.values(value as Record<string, unknown>)) {
+			assertJsonValue(item, seen);
+		}
+	}
+	seen.delete(value);
 }
 
 function asJson(value: unknown): CoreJsonValue {

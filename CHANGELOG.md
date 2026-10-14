@@ -28,6 +28,10 @@ until the release manager assigns a version and publication date.
   raw subject or resource identifiers.
 - Added a stable Ed25519 instance identity, protected private-key storage, public Core persistence,
   drift detection, and bounded proof-of-possession challenges.
+- Added the complete declarative schema lifecycle: strict table DSL, deterministic planning,
+  registered transformations, withdrawal policies, atomic recovery, and persistent journaling.
+- Added Core-issued schema execution decisions with plan integrity proofs, destructive-operation
+  approval, replay protection, concurrency control, and physical-drift detection.
 
 ### Changed
 
@@ -71,6 +75,8 @@ until the release manager assigns a version and publication date.
 - Separated contribution deployment history from the declarative schema journal.
 - Unified public and administrative development access without running a second Vite port.
 - Overrode the vulnerable transitive KaTeX version.
+- Prevented declarative schema contributions from supplying arbitrary SQL, unregistered
+  transformations, unsafe identifiers, forged execution decisions, or altered plans.
 
 ### Release notes
 

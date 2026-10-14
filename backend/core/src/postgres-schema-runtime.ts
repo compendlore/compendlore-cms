@@ -1,11 +1,13 @@
 import type { CoreDatabase, SqlStatement, SqlValue, TransactionContext } from "../database.js";
 import { CoreError } from "./errors.js";
 import type { CoreJsonValue } from "./store.js";
+import { validateSchemaExecution } from "./schema-runtime.js";
 import type {
 	PhysicalColumn,
 	PhysicalForeignKey,
 	PhysicalIndex,
 	PhysicalTableState,
+	SchemaApplicationDecision,
 	SchemaJournalEntry,
 	SchemaPlan,
 	SchemaPlanOperation,
@@ -43,9 +45,12 @@ interface ForeignKeyRow {
 interface JournalRow {
 	id: string;
 	contribution_key: string;
+	owner_kind: SchemaPlan["ownerKind"];
 	owner_identifier: string;
 	version: string;
 	fingerprint: string;
+	plan_integrity: string;
+	decision_id: string;
 	desired_state: SchemaJournalEntry["desiredState"];
 	applied_state: SchemaJournalEntry["appliedState"];
 	observed_state: SchemaJournalEntry["observedState"];
@@ -110,8 +115,9 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 		};
 	}
 
-	async apply(plan: SchemaPlan): Promise<SchemaJournalEntry> {
-		const pending = journalEntry(plan, "pending", "unknown");
+	async apply(plan: SchemaPlan, decision: SchemaApplicationDecision): Promise<SchemaJournalEntry> {
+		validateSchemaExecution(plan, decision);
+		const pending = journalEntry(plan, decision, "pending", "unknown");
 		await this.writeJournal(pending);
 		try {
 			await this.database.transaction(async (transaction) => {
@@ -132,7 +138,7 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 				...pending,
 				appliedState: "rolled-back",
 				observedState: "unknown",
-				error: error instanceof Error ? error.message : "Échec inconnu.",
+				error: "schema.execution_rolled_back",
 			};
 			await this.updateJournal(failed);
 			throw new CoreError("infrastructure.unavailable", "Le plan de schéma a été annulé.", {
@@ -148,9 +154,12 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 			SELECT
 				id,
 				contribution_key,
+				owner_kind,
 				owner_identifier,
 				version,
 				fingerprint,
+				plan_integrity,
+				decision_id,
 				desired_state,
 				applied_state,
 				observed_state,
@@ -258,12 +267,15 @@ export class PostgresSchemaRuntime implements SchemaRuntime {
 		return this.database.query(sql`
 			/* pgsql */
 			INSERT INTO core.contribution_schema_journal (
-				id, contribution_key, owner_identifier, version, fingerprint,
+				id, contribution_key, owner_kind, owner_identifier, version, fingerprint,
+				plan_integrity, decision_id,
 				desired_state, applied_state, observed_state, plan, error,
 				requested_at, applied_at
 			) VALUES (
-				${entry.id}, ${entry.contributionKey}, ${entry.ownerIdentifier}, ${entry.version},
-				${entry.fingerprint}, ${entry.desiredState}, ${entry.appliedState},
+				${entry.id}, ${entry.contributionKey}, ${entry.ownerKind}, ${entry.ownerIdentifier},
+				${entry.version},
+				${entry.fingerprint}, ${entry.planIntegrity}, ${entry.decisionId},
+				${entry.desiredState}, ${entry.appliedState},
 				${entry.observedState}, ${JSON.stringify(entry.plan)}, ${entry.error ?? null},
 				${entry.requestedAt}, ${entry.appliedAt ?? null}
 			)
@@ -635,15 +647,19 @@ function mapDeleteAction(action: ForeignKeyRow["delete_action"]): PhysicalForeig
 
 function journalEntry(
 	plan: SchemaPlan,
+	decision: SchemaApplicationDecision,
 	appliedState: SchemaJournalEntry["appliedState"],
 	observedState: SchemaJournalEntry["observedState"],
 ): SchemaJournalEntry {
 	return {
 		id: plan.id,
 		contributionKey: plan.contributionKey,
+		ownerKind: plan.ownerKind,
 		ownerIdentifier: plan.ownerIdentifier,
 		version: plan.version,
 		fingerprint: plan.fingerprint,
+		planIntegrity: plan.integrity,
+		decisionId: decision.id,
 		desiredState: plan.desiredState,
 		appliedState,
 		observedState,
@@ -653,16 +669,24 @@ function journalEntry(
 }
 
 function mapJournal(row: JournalRow): SchemaJournalEntry {
+	const generatedAt = row.plan.generatedAt;
 	return {
 		id: row.id,
 		contributionKey: row.contribution_key,
+		ownerKind: row.owner_kind,
 		ownerIdentifier: row.owner_identifier,
 		version: row.version,
 		fingerprint: row.fingerprint,
+		planIntegrity: row.plan_integrity,
+		decisionId: row.decision_id,
 		desiredState: row.desired_state,
 		appliedState: row.applied_state,
 		observedState: row.observed_state,
-		plan: row.plan,
+		plan: {
+			...row.plan,
+			generatedAt:
+				generatedAt instanceof Date ? generatedAt : new Date(generatedAt as unknown as string),
+		},
 		requestedAt: row.requested_at,
 		...(row.applied_at ? { appliedAt: row.applied_at } : {}),
 		...(row.error ? { error: row.error } : {}),
