@@ -10,17 +10,45 @@ import {
 	CoreEventStream,
 	CoreRuntime,
 	CoreRestorationService,
+	CoreSchemaGateway,
 	CsrfProtection,
+	EntityCatalogService,
+	EntityDataMaterializer,
+	EntityEcosystemService,
+	EntityImportService,
+	EntityOperationalService,
+	EntityRecordService,
+	coreLocalizationFoundation,
 	ensureInstanceIdentity,
 	InMemoryCoreStore,
+	InMemoryEntityCatalogRepository,
+	InMemoryEntityEcosystemRepository,
+	InMemoryEntityImportRepository,
+	InMemoryEntityOperationalRepository,
+	InMemoryEntityRecordRepository,
 	InMemoryMessagingRepository,
 	InMemoryMessagingCampaignRepository,
 	InMemoryMessageAudienceDirectory,
 	InMemoryMessageDeliveryRepository,
 	InMemoryNotificationTemplateRepository,
+	InMemoryLocalizationRepository,
+	InMemoryNavigationRepository,
+	InMemoryNativeNotificationRepository,
 	InMemoryObjectStorage,
+	InMemorySchemaRuntime,
 	InMemoryTaskQueue,
 	loadCoreConfig,
+	LocalizationService,
+	localizationResourceIdentifier,
+	nativeEntityFoundation,
+	nativeEntityEcosystem,
+	nativeNavigationFoundation,
+	NavigationService,
+	NativeNotificationService,
+	materializeNativeNotificationFoundation,
+	InMemoryPageRepository,
+	nativePageFoundation,
+	PageService,
 	ManagedObjectStorage,
 	MessagingCampaignService,
 	MessageDeliveryService,
@@ -31,6 +59,117 @@ import {
 	RateLimiter,
 	securityDigest,
 } from "../backend/build/core/src/index.js";
+
+test("matérialise, localise, pagine et synchronise les notifications natives", async () => {
+	const localization = new LocalizationService(new InMemoryLocalizationRepository());
+	const topics = [];
+	await materializeNativeNotificationFoundation(
+		{
+			async registerTopicVersion(definition) {
+				topics.push(definition);
+			},
+		},
+		localization,
+	);
+	assert.deepEqual(
+		topics.map((topic) => topic.topicIdentifier),
+		["core.account", "core.maintenance", "core.restart", "core.security"],
+	);
+	const instanceId = "70000000-0000-4000-8000-000000000001";
+	const userId = "70000000-0000-4000-8000-000000000002";
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "en",
+		enabled: true,
+		displayOrder: 0,
+		default: true,
+	});
+	const repository = new InMemoryNativeNotificationRepository();
+	let nextNotification = 3;
+	let actionAllowed = false;
+	let authorizationCount = 0;
+	const service = new NativeNotificationService(
+		repository,
+		localization,
+		{
+			async materialize() {
+				return `70000000-0000-4000-8000-${String(nextNotification++).padStart(12, "0")}`;
+			},
+		},
+		{
+			async authorize() {
+				authorizationCount += 1;
+				return actionAllowed;
+			},
+		},
+		() => new Date("2026-10-15T10:00:00.000Z"),
+	);
+	const first = await service.deliver({
+		userId,
+		messageId: "70000000-0000-4000-8000-000000000010",
+		topicIdentifier: "core.security",
+		localization: { instanceId, requestedLocale: "en" },
+	});
+	const second = await service.deliver({
+		userId,
+		messageId: "70000000-0000-4000-8000-000000000011",
+		topicIdentifier: "core.maintenance",
+		localization: { instanceId, requestedLocale: "en" },
+	});
+	assert.equal(first.locale, "en");
+	assert.equal(first.title, "Security notification");
+	const page = await service.page({ userId, limit: 1 });
+	assert.equal(page.items.length, 1);
+	assert.equal(page.nextCursor, second.revision);
+	assert.equal((await service.changes(userId, first.revision)).length, 1);
+
+	const read = await service.setState({
+		userId,
+		notificationId: first.id,
+		state: "read",
+		expectedRevision: first.revision,
+	});
+	await assert.rejects(
+		service.executeAction({
+			userId,
+			notificationId: first.id,
+			actionIdentifier: "security.review",
+			expectedRevision: read.revision,
+		}),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+	actionAllowed = true;
+	const processed = await service.executeAction({
+		userId,
+		notificationId: first.id,
+		actionIdentifier: "security.review",
+		expectedRevision: read.revision,
+	});
+	assert.equal(processed.state, "processed");
+	assert.equal(authorizationCount, 2);
+	const hidden = await service.setState({
+		userId,
+		notificationId: second.id,
+		state: "hidden",
+		expectedRevision: second.revision,
+	});
+	const archived = await service.setState({
+		userId,
+		notificationId: second.id,
+		state: "archived",
+		expectedRevision: hidden.revision,
+	});
+	assert.equal(archived.state, "archived");
+	await assert.rejects(
+		service.setState({
+			userId: "70000000-0000-4000-8000-000000000099",
+			notificationId: second.id,
+			state: "archived",
+			expectedRevision: archived.revision,
+		}),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+});
 import {
 	InMemoryInstancePrivateKeyStore,
 	InstanceIdentityCryptography,
@@ -50,6 +189,549 @@ const secrets = {
 		return `resolved-${reference}-with-sufficient-entropy`;
 	},
 };
+
+test("matérialise, publie et autorise les pages dynamiques", async () => {
+	const pages = new PageService(new InMemoryPageRepository());
+	await pages.materializePages(nativePageFoundation());
+	await pages.publish("core.home", 1);
+	await pages.publish("core.admin.dashboard", 1);
+
+	assert.equal(
+		(
+			await pages.resolve({
+				path: "/",
+				surface: "site",
+				principal: { capabilities: new Set() },
+				resolveText: async () => "Accueil",
+			})
+		)?.component,
+		"core.page",
+	);
+	assert.equal(
+		await pages.resolve({
+			path: "/admin",
+			surface: "administration",
+			principal: { capabilities: new Set() },
+			resolveText: async () => "Administration",
+		}),
+		undefined,
+	);
+	assert.equal(
+		(
+			await pages.resolve({
+				path: "/admin",
+				surface: "administration",
+				principal: { capabilities: new Set(["core.administration.access"]) },
+				resolveText: async () => "Administration",
+			})
+		)?.identifier,
+		"core.admin.dashboard",
+	);
+});
+
+test("crée, exporte et importe une page uniquement par les opérations Core", async () => {
+	const pages = new PageService(new InMemoryPageRepository());
+	const created = await pages.createPage({
+		identifier: "instance.example",
+		ownerContributionKey: "instance",
+		version: "1.0.0",
+		surface: "site",
+		path: "/example",
+		component: "site.article",
+		titleResource: "instance.pages.example.title",
+		content: [],
+		requiredCapabilities: [],
+		lifecycle: { canDisable: true, canArchive: true, canDelete: true },
+		exportPolicy: "exportable",
+		enabledByDefault: true,
+	});
+	await pages.publish(created.pageIdentifier, created.revision);
+	const document = await pages.exportPage(created.pageIdentifier);
+	assert.equal(document.format, "compendlore.page");
+	assert.equal("ownerContributionKey" in document.page, false);
+	assert.equal(JSON.stringify(document).includes("record_id"), false);
+
+	const importedPages = new PageService(new InMemoryPageRepository());
+	const preview = await importedPages.previewImport(document, new Set(["site.article"]));
+	assert.equal(preview.applicable, true);
+	assert.equal((await importedPages.importPage(document, new Set(["site.article"]))).revision, 1);
+	assert.equal(
+		(await importedPages.previewImport(document, new Set(["site.article"]))).applicable,
+		false,
+	);
+	await assert.rejects(
+		importedPages.previewImport(
+			{ ...document, page: { ...document.page, html: "<script>alert(1)</script>" } },
+			new Set(["site.article"]),
+		),
+		(error) => error instanceof CoreError && error.code === "configuration.invalid",
+	);
+});
+
+test("verrouille les pages administratives et refuse les contrats de page ambigus", async () => {
+	const pages = new PageService(new InMemoryPageRepository());
+	await pages.materializePages(nativePageFoundation());
+	await assert.rejects(
+		pages.exportPage("core.admin.dashboard"),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+	await assert.rejects(
+		pages.materializePages({
+			sourceContributionKey: "module.invalid",
+			pages: nativePageFoundation()
+				.pages.slice(0, 2)
+				.map((page) => ({
+					...page,
+					identifier: `invalid.${page.identifier}`,
+					ownerContributionKey: "module.invalid",
+					surface: "site",
+					path: "/collision",
+				})),
+		}),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
+	);
+});
+
+async function createEntityTestContext(events) {
+	const catalogRepository = new InMemoryEntityCatalogRepository();
+	const catalog = new EntityCatalogService(catalogRepository);
+	await catalog.materializeEntityCatalog(nativeEntityFoundation());
+	await catalog.materializeEntityCatalog({
+		sourceContributionKey: "module.site",
+		fieldTypes: [],
+		entityTypes: [
+			{
+				identifier: "character",
+				ownerContributionKey: "module.site",
+				parentIdentifier: "entity",
+				abstract: false,
+				final: false,
+				allowsExtensions: true,
+				locked: false,
+				identifierPolicy: {
+					scope: "type",
+					namespaceRequired: false,
+					generated: false,
+					mutableUntilPublication: true,
+				},
+				fields: [],
+			},
+		],
+	});
+	const recordRepository = new InMemoryEntityRecordRepository();
+	const recordService = new EntityRecordService(
+		catalog,
+		recordRepository,
+		() => new Date("2026-10-15T10:00:00.000Z"),
+		events,
+	);
+	return { catalog, recordRepository, recordService };
+}
+
+test("enregistre la racine entity verrouillée et résout ses champs hérités", async () => {
+	const repository = new InMemoryEntityCatalogRepository();
+	const entities = new EntityCatalogService(repository);
+	await entities.materializeEntityCatalog(nativeEntityFoundation());
+	const root = await entities.resolveEntityType("entity");
+	assert.equal(root.abstract, true);
+	assert.equal(root.locked, true);
+	assert.deepEqual(
+		root.effectiveFields.map((field) => field.key),
+		["id", "name", "abbreviation", "summary", "description", "icon", "tags", "aliases"],
+	);
+
+	await entities.materializeEntityCatalog({
+		sourceContributionKey: "module.site",
+		fieldTypes: [],
+		entityTypes: [
+			{
+				identifier: "character",
+				ownerContributionKey: "module.site",
+				parentIdentifier: "entity",
+				abstract: false,
+				final: false,
+				allowsExtensions: true,
+				locked: false,
+				identifierPolicy: {
+					scope: "type",
+					namespaceRequired: true,
+					generated: false,
+					mutableUntilPublication: true,
+				},
+				fields: [],
+			},
+		],
+	});
+	const character = await entities.resolveEntityType("character");
+	assert.deepEqual(character.ancestors, ["entity"]);
+	assert.equal(character.effectiveFields.length, 8);
+
+	const changedFoundation = nativeEntityFoundation();
+	await assert.rejects(
+		entities.materializeEntityCatalog({
+			...changedFoundation,
+			entityTypes: changedFoundation.entityTypes.map((definition) => ({
+				...definition,
+				final: true,
+			})),
+		}),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
+	);
+});
+
+test("refuse les graphes entity incomplets, cycliques ou en collision", async () => {
+	const repository = new InMemoryEntityCatalogRepository();
+	const entities = new EntityCatalogService(repository);
+	await entities.materializeEntityCatalog(nativeEntityFoundation());
+	const child = (identifier, parentIdentifier) => ({
+		identifier,
+		ownerContributionKey: "module.site",
+		parentIdentifier,
+		abstract: false,
+		final: false,
+		allowsExtensions: true,
+		locked: false,
+		identifierPolicy: {
+			scope: "type",
+			namespaceRequired: false,
+			generated: false,
+			mutableUntilPublication: true,
+		},
+		fields: [],
+	});
+	await assert.rejects(
+		entities.materializeEntityCatalog({
+			sourceContributionKey: "module.site",
+			fieldTypes: [],
+			entityTypes: [child("cycle-a", "cycle-b"), child("cycle-b", "cycle-a")],
+		}),
+		(error) => error instanceof CoreError && /cycle/u.test(error.message),
+	);
+});
+
+test("versionne, autorise, restaure, recherche et exporte les occurrences entity", async () => {
+	const catalogRepository = new InMemoryEntityCatalogRepository();
+	const catalog = new EntityCatalogService(catalogRepository);
+	await catalog.materializeEntityCatalog(nativeEntityFoundation());
+	await catalog.materializeEntityCatalog({
+		sourceContributionKey: "module.site",
+		fieldTypes: [],
+		entityTypes: [
+			{
+				identifier: "character",
+				ownerContributionKey: "module.site",
+				parentIdentifier: "entity",
+				abstract: false,
+				final: false,
+				allowsExtensions: true,
+				locked: false,
+				identifierPolicy: {
+					scope: "type",
+					namespaceRequired: false,
+					generated: false,
+					mutableUntilPublication: true,
+				},
+				fields: [],
+			},
+		],
+	});
+	const records = new EntityRecordService(
+		catalog,
+		new InMemoryEntityRecordRepository(),
+		() => new Date("2026-10-15T10:00:00.000Z"),
+	);
+	const principal = {
+		id: "73000000-0000-4000-8000-000000000001",
+		capabilities: new Set([
+			"entity.create",
+			"entity.update",
+			"entity.publish",
+			"entity.read",
+			"entity.restore",
+			"entity.export",
+		]),
+	};
+	const created = await records.create(
+		{
+			entityType: "character",
+			publicIdentifier: "character.hero",
+			owner: { kind: "user", identifier: principal.id },
+			values: { id: "character.hero", name: { en: "Hero", fr: "Héros" } },
+		},
+		principal,
+	);
+	assert.notEqual(created.recordId, created.publicIdentifier);
+	const published = await records.update(
+		created.recordId,
+		{ expectedRevision: 1, status: "published", values: created.values },
+		principal,
+	);
+	assert.equal(published.revision, 2);
+	await assert.rejects(
+		records.update(created.recordId, { expectedRevision: 1, values: created.values }, principal),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
+	);
+	const query = await records.query(
+		{
+			entityType: "character",
+			filter: { id: "character.hero" },
+			sort: { field: "name", direction: "asc" },
+			limit: 10,
+		},
+		principal,
+	);
+	assert.equal(query.items.length, 1);
+	const restored = await records.restore(created.recordId, 1, 2, principal);
+	assert.equal(restored.revision, 3);
+	assert.equal(restored.status, "draft");
+	const exported = await records.exportRecords([created.recordId], principal);
+	assert.equal(exported.format, "compendlore.entities");
+	assert.equal(exported.records[0]?.publicIdentifier, "character.hero");
+});
+
+test("canonicalise les locales et résout les fallbacks sans cycle", async () => {
+	const repository = new InMemoryLocalizationRepository();
+	const localization = new LocalizationService(repository);
+	const instanceId = "70000000-0000-4000-8000-000000000001";
+	await localization.materializeLocalization(coreLocalizationFoundation());
+	assert.equal(
+		(
+			await localization.resolveLocalizedText(
+				localizationResourceIdentifier("core.localization", "security", "access_denied"),
+				{ instanceId, requestedLocale: "en" },
+			)
+		).value,
+		"Access denied",
+	);
+	const resourceIdentifier = localizationResourceIdentifier(
+		"module.site",
+		"navigation",
+		"home.title",
+	);
+
+	await localization.materializeLocalization({
+		sourceContributionKey: "module.site",
+		resources: [
+			{
+				identifier: resourceIdentifier,
+				ownerContributionKey: "module.site",
+				namespace: "navigation",
+				key: "home.title",
+				format: "plain",
+				allowInstanceOverride: true,
+				required: true,
+			},
+		],
+		values: [
+			{
+				resourceIdentifier,
+				locale: "EN-us",
+				sourceLayer: "owner",
+				sourceContributionKey: "module.site",
+				value: "Home",
+			},
+			{
+				resourceIdentifier,
+				locale: "fr",
+				sourceLayer: "owner",
+				sourceContributionKey: "module.site",
+				value: "Accueil",
+			},
+		],
+	});
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "fr",
+		enabled: true,
+		displayOrder: 0,
+		default: true,
+	});
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "fr-CA",
+		enabled: true,
+		displayOrder: 1,
+		default: false,
+		fallbackLocale: "fr",
+	});
+
+	const resolved = await localization.resolveLocalizedText(resourceIdentifier, {
+		instanceId,
+		requestedLocale: "fr-ca",
+		includeProvenance: true,
+	});
+	assert.deepEqual(resolved, {
+		resourceIdentifier,
+		value: "Accueil",
+		locale: "fr",
+		revision: 1,
+		missing: false,
+		sourceLayer: "owner",
+		sourceContributionKey: "module.site",
+	});
+
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "en-US",
+		enabled: true,
+		displayOrder: 2,
+		default: false,
+		fallbackLocale: "fr-CA",
+	});
+	await assert.rejects(
+		localization.configureInstanceLocale({
+			instanceId,
+			locale: "fr",
+			enabled: true,
+			displayOrder: 0,
+			default: true,
+			fallbackLocale: "en-US",
+		}),
+		(error) => error instanceof CoreError && /cycle/i.test(error.message),
+	);
+});
+
+test("compose les couches de traduction et d’instance sans écraser le propriétaire", async () => {
+	const repository = new InMemoryLocalizationRepository();
+	const localization = new LocalizationService(repository);
+	const instanceId = "71000000-0000-4000-8000-000000000001";
+	const actorId = "71000000-0000-4000-8000-000000000002";
+	const resourceIdentifier = localizationResourceIdentifier(
+		"module.site",
+		"navigation",
+		"home.title",
+	);
+	await localization.materializeLocalization({
+		sourceContributionKey: "module.site",
+		resources: [
+			{
+				identifier: resourceIdentifier,
+				ownerContributionKey: "module.site",
+				namespace: "navigation",
+				key: "home.title",
+				format: "plain",
+				allowInstanceOverride: true,
+				required: true,
+			},
+		],
+		values: [
+			{
+				resourceIdentifier,
+				locale: "fr-FR",
+				sourceLayer: "owner",
+				sourceContributionKey: "module.site",
+				value: "Accueil propriétaire",
+			},
+		],
+	});
+	await localization.materializeLocalization({
+		sourceContributionKey: "translation.site-fr",
+		resources: [],
+		values: [
+			{
+				resourceIdentifier,
+				locale: "fr-FR",
+				sourceLayer: "translation",
+				sourceContributionKey: "translation.site-fr",
+				value: "Accueil traduit",
+			},
+		],
+	});
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "fr-FR",
+		enabled: true,
+		displayOrder: 0,
+		default: true,
+	});
+	await localization.selectTranslationSource({
+		instanceId,
+		targetContributionKey: "module.site",
+		locale: "fr-FR",
+		sourceContributionKey: "translation.site-fr",
+		priority: 0,
+		enabled: true,
+		updatedBy: actorId,
+	});
+	assert.equal(
+		(
+			await localization.resolveLocalizedText(resourceIdentifier, {
+				instanceId,
+				requestedLocale: "fr-FR",
+			})
+		).value,
+		"Accueil traduit",
+	);
+
+	await localization.materializeLocalization({
+		sourceContributionKey: "instance.localization",
+		resources: [],
+		values: [
+			{
+				resourceIdentifier,
+				locale: "fr-FR",
+				sourceLayer: "instance",
+				sourceContributionKey: "instance.localization",
+				value: "Bienvenue",
+				createdBy: actorId,
+			},
+		],
+	});
+	const overridden = await localization.resolveLocalizedText(resourceIdentifier, {
+		instanceId,
+		requestedLocale: "fr-FR",
+		includeProvenance: true,
+	});
+	assert.equal(overridden.value, "Bienvenue");
+	assert.equal(overridden.sourceLayer, "instance");
+
+	await localization.materializeLocalization({
+		sourceContributionKey: "instance.localization",
+		resources: [],
+		values: [
+			{
+				resourceIdentifier,
+				locale: "fr-FR",
+				sourceLayer: "instance",
+				sourceContributionKey: "instance.localization",
+				value: "Bienvenue à nouveau",
+				createdBy: actorId,
+				expectedRevision: 1,
+			},
+		],
+	});
+	await assert.rejects(
+		localization.materializeLocalization({
+			sourceContributionKey: "instance.localization",
+			resources: [],
+			values: [
+				{
+					resourceIdentifier,
+					locale: "fr-FR",
+					sourceLayer: "instance",
+					sourceContributionKey: "instance.localization",
+					value: "Écriture concurrente",
+					createdBy: actorId,
+					expectedRevision: 1,
+				},
+			],
+		}),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
+	);
+	assert.equal(
+		(await repository.listActiveValues(resourceIdentifier, "fr-FR")).find(
+			(value) => value.sourceLayer === "owner",
+		).value,
+		"Accueil propriétaire",
+	);
+
+	const impact = await localization.inspectLocalizationWithdrawal("translation.site-fr");
+	assert.equal(impact.blocked, true);
+	await assert.rejects(
+		localization.archiveLocalizationContribution("translation.site-fr"),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
+	);
+});
 
 test("initialise une instance vide et protège l'administration par 2FA", async () => {
 	const store = new InMemoryCoreStore();
@@ -1491,5 +2173,560 @@ test("bloque toute nouvelle émission d’une contribution désactivée", async 
 			payload: {},
 		}),
 		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+});
+
+test("catalogue structures, interfaces, mesures, taxonomies et projections entity", async () => {
+	const repository = new InMemoryEntityEcosystemRepository();
+	const service = new EntityEcosystemService(repository);
+	await service.register(nativeEntityEcosystem());
+	await service.register({
+		sourceContributionKey: "addon.bestiary",
+		choices: [
+			{
+				identifier: "creature-size",
+				ownerContributionKey: "addon.bestiary",
+				kind: "static",
+				multiple: false,
+				options: [
+					{ key: "small", labelResource: "bestiary.size.small" },
+					{ key: "large", labelResource: "bestiary.size.large" },
+				],
+			},
+		],
+		fieldExtensions: [
+			{
+				identifier: "creature-profile",
+				ownerContributionKey: "addon.bestiary",
+				fieldType: "object",
+				choiceSource: "creature-size",
+				schema: {
+					kind: "object",
+					key: "profile",
+					children: [
+						{
+							kind: "collection",
+							key: "traits",
+							minimum: 0,
+							maximum: 20,
+							childTable: true,
+							item: {
+								kind: "field",
+								key: "trait",
+								fieldType: "short-text",
+								required: true,
+								configuration: {},
+							},
+						},
+					],
+				},
+			},
+		],
+		relations: [
+			{
+				identifier: "creature-origin",
+				ownerContributionKey: "addon.bestiary",
+				sourceType: "creature",
+				targetType: "location",
+				sourceMaximum: 1,
+				directed: true,
+				withdrawalPolicy: "restrict",
+				permissions: ["bestiary.relation.write"],
+			},
+		],
+		projections: [
+			{
+				identifier: "creature-search-name",
+				ownerContributionKey: "addon.bestiary",
+				entityType: "creature",
+				sourceFields: ["name", "aliases"],
+				dependencies: [],
+				localized: true,
+				indexed: true,
+				outputType: "text",
+			},
+		],
+		interfaces: [
+			{
+				identifier: "creature-edit",
+				ownerContributionKey: "addon.bestiary",
+				entityType: "creature",
+				usage: "edit",
+				version: 1,
+				permissions: ["bestiary.edit"],
+				primitives: [
+					{
+						kind: "field",
+						key: "name-field",
+						field: "name",
+						condition: { operation: "exists", field: "name" },
+					},
+				],
+				authorityRules: [
+					{
+						identifier: "published-name",
+						effect: "publish-requirement",
+						field: "name",
+						condition: { operation: "exists", field: "name" },
+					},
+				],
+			},
+		],
+	});
+	assert.equal((await service.list()).length, 2);
+	assert.deepEqual(
+		service.analyzeSchemaChange({
+			resourceKind: "field",
+			resourceIdentifier: "creature.profile",
+			operation: "purge",
+			usages: 7,
+		}),
+		{
+			classification: "incompatible",
+			requiresExplicitPlan: true,
+			blockers: ["7 active usage(s)"],
+		},
+	);
+
+	await assert.rejects(
+		service.register({
+			sourceContributionKey: "addon.cycle",
+			projections: [
+				{
+					identifier: "projection-a",
+					ownerContributionKey: "addon.cycle",
+					entityType: "entity",
+					sourceFields: [],
+					dependencies: ["projection-b"],
+					localized: false,
+					indexed: true,
+					outputType: "text",
+				},
+				{
+					identifier: "projection-b",
+					ownerContributionKey: "addon.cycle",
+					entityType: "entity",
+					sourceFields: [],
+					dependencies: ["projection-a"],
+					localized: false,
+					indexed: true,
+					outputType: "text",
+				},
+			],
+		}),
+		(error) => error instanceof CoreError && /cycle/u.test(error.message),
+	);
+});
+
+test("matérialise les segments entity dans cms_data uniquement par le moteur Core", async () => {
+	const { catalog } = await createEntityTestContext();
+	const runtime = new InMemorySchemaRuntime();
+	const materializer = new EntityDataMaterializer(new CoreSchemaGateway(runtime));
+	const type = await catalog.resolveEntityType("character");
+	const result = await materializer.materialize(type);
+	assert.equal(result.journal.length, 4);
+	assert.deepEqual(
+		result.preview.plans.map((plan) => plan.operations[0].kind),
+		["create-table", "create-table", "create-table", "create-table"],
+	);
+	assert.equal(
+		Object.values(result.preview.tables).every((name) => /^entity_[0-9a-f]{16}/u.test(name)),
+		true,
+	);
+	assert.equal(
+		result.preview.plans.every(
+			(plan) => plan.ownerKind === "native-module" && plan.destructive === false,
+		),
+		true,
+	);
+	assert.equal((await materializer.materialize(type)).journal.length, 0);
+});
+
+test("applique propriété, partage, relations, taxonomie, recherche et ancres entity", async () => {
+	const events = [];
+	const { recordRepository, recordService } = await createEntityTestContext({
+		async publish(event) {
+			events.push(event);
+		},
+	});
+	const principal = { id: "user-owner", capabilities: new Set(["*"]) };
+	const first = await recordService.create(
+		{
+			entityType: "character",
+			publicIdentifier: "hero",
+			values: { name: "Éclaireuse", description: { anchor: "history" } },
+			owner: { kind: "user", identifier: principal.id },
+		},
+		principal,
+	);
+	const second = await recordService.create(
+		{
+			entityType: "character",
+			publicIdentifier: "mentor",
+			values: { name: "Mentor" },
+			owner: { kind: "group", identifier: "keepers" },
+		},
+		principal,
+	);
+	const operations = new EntityOperationalService(
+		recordRepository,
+		new InMemoryEntityOperationalRepository(),
+	);
+	await operations.share(
+		first.recordId,
+		{ principalKind: "user", principalId: "reader", capabilities: ["read"] },
+		principal,
+	);
+	assert.equal(
+		(await operations.listAccessible({ id: "reader", capabilities: new Set() })).length,
+		1,
+	);
+	await operations.relate(
+		{ identifier: "mentor", sourceMaximum: 1 },
+		{
+			relationIdentifier: "mentor",
+			sourceRecordId: first.recordId,
+			targetRecordId: second.recordId,
+		},
+		principal,
+	);
+	await operations.assignTerms(first.recordId, "tags", ["heroic", "urban"], 2, principal);
+	const indexed = await operations.rebuildSearchDocument({
+		recordId: first.recordId,
+		locale: "fr",
+		audience: "public",
+		text: "  ÉCLAIREUSE   héroïque ",
+		facets: { tags: ["heroic", "urban"] },
+	});
+	assert.equal(
+		(
+			await operations.rebuildSearchDocument({
+				recordId: first.recordId,
+				locale: "fr",
+				audience: "public",
+				text: "  ÉCLAIREUSE   héroïque ",
+				facets: { tags: ["heroic", "urban"] },
+			})
+		).fingerprint,
+		indexed.fingerprint,
+	);
+	assert.equal(
+		(await operations.search({ query: "éclaireuse", locale: "fr", audience: "public", limit: 10 }))
+			.length,
+		1,
+	);
+	assert.deepEqual(
+		(
+			await operations.projectRichContent({
+				recordId: first.recordId,
+				fieldKey: "description",
+				locale: "fr",
+				document: { type: "document", content: [{ anchor: "history" }, { anchor: "history" }] },
+			})
+		).anchors,
+		["history"],
+	);
+	assert.deepEqual(
+		events.map((event) => event.kind),
+		["created", "created"],
+	);
+});
+
+test("prévisualise les conflits et applique les imports entity atomiques ou reprenables", async () => {
+	const existing = {
+		sourceId: "old",
+		entityType: "character",
+		publicIdentifier: "hero",
+		status: "published",
+		values: { name: "Old" },
+	};
+	const repository = new InMemoryEntityImportRepository([existing]);
+	const service = new EntityImportService(repository, 1);
+	const document = {
+		format: "compendlore.entities",
+		version: 1,
+		records: [
+			{ ...existing, sourceId: "replacement", values: { name: "New" } },
+			{
+				sourceId: "new",
+				entityType: "character",
+				publicIdentifier: "guide",
+				status: "draft",
+				values: { name: "Guide" },
+			},
+		],
+	};
+	const preview = await service.preview(document);
+	assert.deepEqual(preview.conflicts, ["hero"]);
+	assert.equal(preview.requiresResumableApply, true);
+	await assert.rejects(service.apply(document, preview.digest, "reject"), CoreError);
+	const applied = await service.apply(document, preview.digest, "skip");
+	assert.equal(applied.applied, 1);
+	assert.equal(typeof applied.jobId, "string");
+	await assert.rejects(service.apply(document, "stale", "replace"), CoreError);
+});
+
+function navigationContext(path, overrides = {}) {
+	return {
+		path,
+		now: new Date("2026-10-15T12:00:00.000Z"),
+		principal: {
+			authenticated: false,
+			capabilities: new Set(),
+			roles: new Set(),
+			multiFactorVerified: false,
+			...overrides,
+		},
+		async resolveText(identifier) {
+			return identifier.split(".").at(-1);
+		},
+	};
+}
+
+test("matérialise la navigation native et sépare brand, liens et actions", async () => {
+	const repository = new InMemoryNavigationRepository();
+	const navigation = new NavigationService(repository);
+	await navigation.materializeNavigation(nativeNavigationFoundation());
+
+	const anonymous = await navigation.resolve(navigationContext("/"));
+	assert.equal(anonymous.brand.identifier, "core.home");
+	assert.equal(anonymous.brand.active, true);
+	assert.deepEqual(anonymous.primary, []);
+	assert.deepEqual(
+		anonymous.actions.map((item) => item.identifier),
+		["core.login"],
+	);
+	assert.equal(anonymous.sidebar, undefined);
+
+	const administrator = {
+		authenticated: true,
+		capabilities: new Set(["core.administration.access"]),
+		roles: new Set(["administrator"]),
+		multiFactorVerified: true,
+	};
+	const resolved = await navigation.resolve(navigationContext("/admin", administrator));
+	assert.deepEqual(
+		resolved.actions.map((item) => item.identifier),
+		["core.administration", "core.profile", "core.logout"],
+	);
+	assert.deepEqual(
+		resolved.sidebar.items.map((item) => item.identifier),
+		[
+			"core.administration.dashboard",
+			"core.administration.modules",
+			"core.administration.interface",
+		],
+	);
+	assert.equal(await navigation.authorizeTarget("core.administration", administrator), true);
+	assert.equal(
+		await navigation.authorizeTarget("core.administration", {
+			...administrator,
+			multiFactorVerified: false,
+		}),
+		false,
+	);
+});
+
+test("normalise l’ordre et lie profile et logout à l’activation de login", async () => {
+	const repository = new InMemoryNavigationRepository();
+	const navigation = new NavigationService(repository);
+	await navigation.materializeNavigation(nativeNavigationFoundation());
+	await navigation.reorder("action", [
+		"core.logout",
+		"core.profile",
+		"core.administration",
+		"core.login",
+	]);
+	let snapshot = await repository.snapshot();
+	assert.deepEqual(
+		snapshot.navigationStates
+			.filter((state) => state.identifier.startsWith("core."))
+			.sort((left, right) => (left.position ?? 0) - (right.position ?? 0))
+			.map((state) => state.identifier)
+			.slice(0, 4),
+		["core.home", "core.logout", "core.profile", "core.administration"],
+	);
+	const login = snapshot.navigationStates.find((state) => state.identifier === "core.login");
+	await navigation.setEnabled("core.login", false, login.revision);
+	snapshot = await repository.snapshot();
+	for (const identifier of ["core.login", "core.profile", "core.logout"]) {
+		assert.equal(
+			snapshot.navigationStates.find((state) => state.identifier === identifier).enabled,
+			false,
+		);
+	}
+	const home = snapshot.navigationStates.find((state) => state.identifier === "core.home");
+	await assert.rejects(
+		navigation.setEnabled("core.home", false, home.revision),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+});
+
+test("refuse un troisième niveau, les cibles actives arbitraires et un brand privé", async () => {
+	const repository = new InMemoryNavigationRepository();
+	const navigation = new NavigationService(repository);
+	await navigation.materializeNavigation(nativeNavigationFoundation());
+	const lifecycle = { canDisable: true, canArchive: true, canDelete: false };
+	const visible = { kind: "always" };
+	const sidebarItems = [
+		{
+			identifier: "addon.root",
+			ownerContributionKey: "module.bad",
+			sidebar: "core.administration",
+			kind: "link",
+			link: "core.admin.dashboard",
+			textResource: "bad.root",
+			visibility: visible,
+			requiredCapabilities: [],
+			allowsChildren: true,
+			overrideFields: [],
+			lifecycle,
+			enabledByDefault: true,
+		},
+		{
+			identifier: "addon.child",
+			ownerContributionKey: "module.bad",
+			sidebar: "core.administration",
+			kind: "link",
+			parent: "addon.root",
+			link: "core.admin.modules",
+			textResource: "bad.child",
+			visibility: visible,
+			requiredCapabilities: [],
+			allowsChildren: true,
+			overrideFields: [],
+			lifecycle,
+			enabledByDefault: true,
+		},
+		{
+			identifier: "addon.grandchild",
+			ownerContributionKey: "module.bad",
+			sidebar: "core.administration",
+			kind: "link",
+			parent: "addon.child",
+			link: "core.admin.interface",
+			textResource: "bad.grandchild",
+			visibility: visible,
+			requiredCapabilities: [],
+			allowsChildren: false,
+			overrideFields: [],
+			lifecycle,
+			enabledByDefault: true,
+		},
+	];
+	await assert.rejects(
+		navigation.materializeNavigation({
+			sourceContributionKey: "module.bad",
+			sidebarItems,
+		}),
+		(error) => error instanceof CoreError && /nested link level/u.test(error.message),
+	);
+	const foundation = nativeNavigationFoundation();
+	await assert.rejects(
+		new NavigationService(new InMemoryNavigationRepository()).materializeNavigation({
+			...foundation,
+			navigationItems: foundation.navigationItems.map((item) =>
+				item.identifier === "core.home" ? { ...item, target: "core.administration" } : item,
+			),
+		}),
+		(error) => error instanceof CoreError && /public route/u.test(error.message),
+	);
+	await assert.rejects(
+		new NavigationService(new InMemoryNavigationRepository()).materializeNavigation({
+			...foundation,
+			navigationItems: foundation.navigationItems.map((item) =>
+				item.identifier === "core.home"
+					? { ...item, visibility: { kind: "authenticated", value: true } }
+					: item,
+			),
+		}),
+		(error) => error instanceof CoreError && /public route/u.test(error.message),
+	);
+});
+
+test("protège les extensions et le retrait des propriétaires de navigation", async () => {
+	const repository = new InMemoryNavigationRepository();
+	const navigation = new NavigationService(repository);
+	const foundation = nativeNavigationFoundation();
+	await navigation.materializeNavigation({
+		...foundation,
+		sidebars: foundation.sidebars.map((sidebar) => ({
+			...sidebar,
+			allowsExtensions: false,
+		})),
+	});
+	const extension = {
+		sourceContributionKey: "module.extension",
+		sidebarItems: [
+			{
+				identifier: "extension.link",
+				ownerContributionKey: "module.extension",
+				sidebar: "core.administration",
+				kind: "link",
+				link: "core.admin.dashboard",
+				textResource: "module.extension.navigation.link",
+				visibility: { kind: "always" },
+				requiredCapabilities: [],
+				allowsChildren: false,
+				overrideFields: [],
+				lifecycle: { canDisable: true, canArchive: true, canDelete: true },
+				enabledByDefault: true,
+			},
+		],
+	};
+	await assert.rejects(
+		navigation.materializeNavigation(extension),
+		(error) => error instanceof CoreError && error.code === "authorization.denied",
+	);
+
+	await navigation.materializeNavigation(foundation);
+	await navigation.materializeNavigation({
+		sourceContributionKey: "module.owner",
+		targets: [
+			{
+				identifier: "owner.target",
+				ownerContributionKey: "module.owner",
+				mode: "navigation",
+				targetType: "route",
+				parameters: { path: "/owner" },
+				audience: "public",
+				active: true,
+			},
+		],
+		links: [
+			{
+				identifier: "owner.link",
+				ownerContributionKey: "module.owner",
+				titleResource: "module.owner.navigation.link",
+				target: "owner.target",
+				visibility: { kind: "always" },
+				requiredCapabilities: [],
+				active: true,
+			},
+		],
+		sidebars: [
+			{
+				identifier: "owner.sidebar",
+				ownerContributionKey: "module.owner",
+				version: "1.0.0",
+				visibility: { kind: "always" },
+				allowsExtensions: true,
+				overrideFields: [],
+				lifecycle: { canDisable: true, canArchive: true, canDelete: true },
+				enabledByDefault: true,
+			},
+		],
+	});
+	await navigation.materializeNavigation({
+		...extension,
+		sidebarItems: extension.sidebarItems.map((item) => ({
+			...item,
+			sidebar: "owner.sidebar",
+			link: "owner.link",
+		})),
+	});
+	await assert.rejects(
+		navigation.withdraw("module.owner"),
+		(error) => error instanceof CoreError && error.code === "infrastructure.conflict",
 	);
 });

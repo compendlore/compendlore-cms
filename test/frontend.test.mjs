@@ -38,9 +38,66 @@ import {
 	AdministrationSessionGuard,
 	hasAdministrationShellAccess,
 	paginateNotifications,
+	parseNavigationProjection,
+	parsePageProjection,
+	parseRegistryAdministrationProjection,
 	parseAdministrationSessionSnapshot,
 	parseNativeNotification,
 } from "../frontend/ui/build/types/index.js";
+
+test("valide strictement la projection administrative du Registry", () => {
+	const projection = parseRegistryAdministrationProjection({
+		generatedAt: "2026-10-15T00:00:00.000Z",
+		contributions: [
+			{
+				key: "module.site",
+				identifier: "site",
+				type: "module",
+				state: "active",
+				version: "1.0.0",
+				owner: { kind: "native-module", identifier: "native.site" },
+				locked: false,
+				dependencies: ["module.core"],
+				dependents: [],
+				blockers: [],
+				allowedActions: ["disable", "withdraw"],
+			},
+		],
+	});
+	assert.equal(projection.contributions[0].owner.identifier, "native.site");
+	assert.throws(() =>
+		parseRegistryAdministrationProjection({ ...projection, generatedAt: "invalid" }),
+	);
+	assert.throws(() =>
+		parseRegistryAdministrationProjection({
+			...projection,
+			contributions: [{ ...projection.contributions[0], allowedActions: ["delete"] }],
+		}),
+	);
+});
+
+test("consomme une projection de page API sans route métier React", async () => {
+	const projection = parsePageProjection({
+		identifier: "core.home",
+		component: "core.home",
+		title: "Accueil",
+		content: [{ kind: "header", title: "Accueil" }],
+		revision: 1,
+		fingerprint: "a".repeat(64),
+	});
+	assert.equal(projection.component, "core.home");
+	assert.throws(() => parsePageProjection({ ...projection, component: "<script>" }));
+
+	const [site, administration] = await Promise.all([
+		readFile(new URL("../frontend/site/src/App.tsx", import.meta.url), "utf8"),
+		readFile(new URL("../frontend/administration/src/App.tsx", import.meta.url), "utf8"),
+	]);
+	for (const application of [site, administration]) {
+		assert.match(application, /usePageProjection\(/);
+		assert.doesNotMatch(application, /kind:\s*"route"/);
+		assert.doesNotMatch(application, /registry\.resolveRoute\(/);
+	}
+});
 
 test("sert le site et l’administration depuis un seul serveur de développement", async () => {
 	const server = await createServer({
@@ -452,7 +509,8 @@ test("préserve le shell public, la session et les replis du site", async () => 
 	assert.match(siteApplication, /session:\s*publicSession/);
 	assert.match(siteApplication, /addEventListener\("popstate"/);
 	assert.match(siteApplication, /history\.pushState/);
-	assert.match(siteApplication, /registry\.resolveRoute\(path, capabilities\)/);
+	assert.match(siteApplication, /usePageProjection\(/);
+	assert.match(siteApplication, /registry\.resolve\(page\.component, capabilities\)/);
 	assert.match(siteApplication, /fallback=\{/);
 	assert.match(siteApplication, /site\.notFound\.title/);
 	assert.equal(siteMessage("fr-FR", "site.notFound.title"), "Erreur page inconnue");
@@ -571,6 +629,89 @@ test("compose séparément barre principale, sidebar et éléments", () => {
 			}),
 		/already exists/i,
 	);
+});
+
+test("consomme une projection de navigation API sans définition métier React", async () => {
+	const projection = parseNavigationProjection({
+		brand: {
+			identifier: "core.home",
+			type: "brand",
+			label: "Compendlore CMS",
+			target: { kind: "route", value: "/" },
+			active: true,
+		},
+		primary: [
+			{
+				identifier: "site.worlds",
+				type: "primary",
+				label: "Univers",
+				target: { kind: "route", value: "/worlds" },
+				active: false,
+			},
+		],
+		actions: [
+			{
+				identifier: "core.logout",
+				type: "action",
+				label: "Déconnexion",
+				target: { kind: "action", value: "core.logout" },
+				active: false,
+			},
+		],
+		sidebar: {
+			identifier: "site.worlds.sidebar",
+			title: "Univers",
+			items: [
+				{
+					identifier: "site.worlds.collection",
+					kind: "category",
+					label: "Collection",
+					initiallyExpanded: true,
+					children: [
+						{
+							identifier: "site.worlds.recent",
+							kind: "link",
+							label: "Ajouts récents",
+							target: { kind: "route", value: "/worlds/recent" },
+							active: false,
+							children: [],
+						},
+					],
+				},
+			],
+		},
+	});
+	assert.equal(projection.brand.href, "/");
+	assert.equal(projection.primary[0].href, "/worlds");
+	assert.equal(projection.actions[0].command, "core.logout");
+	assert.equal(projection.sidebar?.items[0].children[0].id, "site.worlds.recent");
+	assert.throws(
+		() =>
+			parseNavigationProjection({
+				brand: {
+					identifier: "core.home",
+					type: "brand",
+					label: "Compendlore CMS",
+					target: { kind: "route", value: "javascript:alert(1)" },
+					active: true,
+				},
+				primary: [],
+				actions: [],
+			}),
+		/invalid/i,
+	);
+
+	const [site, administration] = await Promise.all([
+		readFile(new URL("../frontend/site/src/App.tsx", import.meta.url), "utf8"),
+		readFile(new URL("../frontend/administration/src/App.tsx", import.meta.url), "utf8"),
+	]);
+	assert.doesNotMatch(site, /new MainNavigationRegistry|navigationResolver\.resolve/);
+	assert.doesNotMatch(
+		administration,
+		/new SidebarRegistry|administrationSidebarElements\.register/,
+	);
+	assert.match(site, /useNavigationProjection/);
+	assert.match(administration, /useNavigationProjection/);
 });
 
 test("rend les menus compacts sans dupliquer navigation, actions ou sidebar", () => {

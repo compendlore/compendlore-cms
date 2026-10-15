@@ -7,6 +7,7 @@ import {
 	type RichBrandView,
 } from "./brand.js";
 import type { NavigationLinkView, SidebarElementView, SidebarView } from "./navigation.js";
+import type { NavigationActionView } from "./navigation-projection.js";
 
 export type NavigationItem = NavigationLinkView;
 
@@ -15,9 +16,12 @@ export interface ApplicationShellProps {
 	readonly primaryNavigation?: readonly NavigationItem[];
 	readonly sidebar?: SidebarView | undefined;
 	readonly actions?: ReactNode;
+	readonly navigationActions?: readonly NavigationActionView[];
+	readonly onNavigationAction?: ((identifier: string) => void) | undefined;
 	readonly children: ReactNode;
 	readonly onNavigate?: ((href: string) => void) | undefined;
 	readonly brand?: RichBrandView | undefined;
+	readonly brandNavigation?: { readonly label: string; readonly href: string } | undefined;
 	readonly compactNavigationLabels?:
 		| {
 				readonly openMain: string;
@@ -40,9 +44,12 @@ export function ApplicationShell({
 	primaryNavigation = [],
 	sidebar,
 	actions,
+	navigationActions = [],
+	onNavigationAction,
 	children,
 	onNavigate,
 	brand,
+	brandNavigation,
 	compactNavigationLabels = defaultCompactNavigationLabels,
 }: ApplicationShellProps) {
 	const [mainMenuOpen, setMainMenuOpen] = useState(false);
@@ -93,12 +100,15 @@ export function ApplicationShell({
 			<header className="topbar">
 				<a
 					className="brand"
-					href="/"
-					aria-label={resolveRichBrandAccessibleLabel(brand, "Compendlore CMS")}
+					href={brandNavigation?.href ?? "/"}
+					aria-label={resolveRichBrandAccessibleLabel(
+						brand,
+						brandNavigation?.label ?? "Compendlore CMS",
+					)}
 					onClick={(event) => {
 						if (!onNavigate) return;
 						event.preventDefault();
-						onNavigate("/");
+						onNavigate(brandNavigation?.href ?? "/");
 					}}
 				>
 					{isSafeThemeBrandLogoSource(brand?.logoSource) ? null : (
@@ -138,7 +148,27 @@ export function ApplicationShell({
 							<NavigationLink key={item.id} item={item} onNavigate={navigate} />
 						))}
 					</nav>
-					<div className="topbar__actions">{actions}</div>
+					<div className="topbar__actions">
+						{navigationActions.map((action) =>
+							action.href ? (
+								<a key={action.id} className="button button--secondary" href={action.href}>
+									{action.icon ? <Icon name={action.icon} /> : null}
+									<span>{action.label}</span>
+								</a>
+							) : (
+								<button
+									key={action.id}
+									type="button"
+									className={`button button--${action.appearance ?? "secondary"}`}
+									onClick={() => onNavigationAction?.(action.command ?? action.id)}
+								>
+									{action.icon ? <Icon name={action.icon} /> : null}
+									<span>{action.label}</span>
+								</button>
+							),
+						)}
+						{actions}
+					</div>
 				</div>
 			</header>
 			{sidebar ? (

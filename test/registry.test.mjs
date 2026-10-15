@@ -4,12 +4,136 @@ import {
 	CoreRegistryPort,
 	CoreRegistryRuntime,
 	InMemoryCoreStore,
+	InMemoryLocalizationRepository,
+	InMemoryEntityCatalogRepository,
+	InMemoryEntityEcosystemRepository,
+	InMemoryNavigationRepository,
+	InMemoryPageRepository,
+	EntityCatalogService,
+	EntityEcosystemService,
+	LocalizationService,
+	nativeEntityFoundation,
+	nativeEntityEcosystem,
+	nativeNavigationFoundation,
+	NavigationService,
+	nativePageFoundation,
+	PageService,
+	CoreSchemaGateway,
+	InMemorySchemaRuntime,
+	localizationResourceIdentifier,
 } from "../backend/build/core/src/index.js";
 import {
 	contributionTypes,
 	createInMemoryCmsRegistry,
+	materializeLocalizedTextContribution,
+	materializeEntityCatalogContribution,
+	materializeNavigationContribution,
+	materializePageContribution,
+	RegistryAdministrationService,
+	DeclarativeSchemaManager,
+	ProofAddonLifecycle,
 	RegistryError,
 } from "../backend/build/cms-registry/src/index.js";
+
+test("installe, met à jour, désactive et retire l’addon de preuve sans accès SQL", async () => {
+	const { registry } = await createRegistry();
+	const runtime = new InMemorySchemaRuntime();
+	const pagesRepository = new InMemoryPageRepository();
+	const pages = new PageService(pagesRepository);
+	const schema = new DeclarativeSchemaManager(new CoreSchemaGateway(runtime));
+	const addon = new ProofAddonLifecycle(registry, schema, pages);
+
+	await addon.install();
+	assert.equal((await registry.get("module.proof.notes")).state, "active");
+	assert.equal((await runtime.inspect("proof_notes")).archived, false);
+	assert.equal((await pagesRepository.snapshot()).versions.length, 1);
+	assert.deepEqual(
+		await registry.invokeRegisteredMethod({
+			methodIdentifier: "proof.notes.echo",
+			input: { value: "proof" },
+			idempotencyKey: "proof-installation",
+		}),
+		{ input: { value: "proof" }, version: "1.0.0" },
+	);
+
+	await addon.update("1.1.0");
+	assert.equal((await registry.get("method.proof.notes.echo")).version, "1.1.0");
+	assert.equal(
+		(await runtime.inspect("proof_notes")).columns.some((column) => column.name === "summary"),
+		true,
+	);
+	assert.equal((await pagesRepository.snapshot()).versions.length, 2);
+
+	await addon.disable();
+	await assert.rejects(
+		registry.invokeRegisteredMethod({ methodIdentifier: "proof.notes.echo", input: {} }),
+		(error) => error instanceof RegistryError && error.code === "registry.method_not_found",
+	);
+	await addon.withdraw();
+	assert.equal((await registry.get("module.proof.notes")).state, "withdrawn");
+	assert.equal((await registry.get("table.proof.notes")).state, "withdrawn");
+	assert.equal((await registry.get("method.proof.notes.echo")).state, "withdrawn");
+	assert.equal(await runtime.inspect("proof_notes"), undefined);
+	assert.equal((await schema.history("table.proof.notes")).at(-1).desiredState, "archived");
+});
+
+test("projette le catalogue administratif avec propriétaires, verrouillages et dépendances", async () => {
+	const { registry } = await createRegistry();
+	const coreOwner = { kind: "core", identifier: "core" };
+	await registry.register(
+		contribution("module", "core", { owner: coreOwner, withdrawalPolicy: "block-uninstall" }),
+		{ requester: coreOwner },
+	);
+	await registry.register(
+		contribution("module", "feature", { dependencies: [{ contributionKey: "module.core" }] }),
+		{ requester: nativeOwner },
+	);
+	await registry.markFailed("module.feature", "Controlled internal diagnostic", {
+		requester: nativeOwner,
+	});
+	const service = new RegistryAdministrationService(registry);
+	const principal = {
+		capabilities: new Set([
+			"core.registry.inspect",
+			"core.registry.mutate",
+			"core.registry.diagnostics",
+		]),
+		owner: nativeOwner,
+		actorId: "administrator",
+	};
+	const projection = await service.project(principal);
+	const core = projection.contributions.find((item) => item.key === "module.core");
+	const feature = projection.contributions.find((item) => item.key === "module.feature");
+	assert.equal(core.locked, true);
+	assert.deepEqual(core.allowedActions, []);
+	assert.deepEqual(feature.dependencies, ["module.core"]);
+	assert.deepEqual(feature.allowedActions, ["repair"]);
+	assert.equal(feature.error, "Controlled internal diagnostic");
+
+	await service.execute("module.feature", "repair", principal);
+	assert.equal((await registry.get("module.feature")).state, "registered");
+});
+
+test("masque les diagnostics Registry et refuse les mutations hors capacité ou propriétaire", async () => {
+	const { registry } = await createRegistry();
+	await registry.register(contribution("module", "private-diagnostic"), { requester: nativeOwner });
+	await registry.markFailed("module.private-diagnostic", "Sensitive internal context", {
+		requester: nativeOwner,
+	});
+	const service = new RegistryAdministrationService(registry);
+	const reader = { capabilities: new Set(["core.registry.inspect"]), owner: nativeOwner };
+	const item = (await service.project(reader)).contributions[0];
+	assert.equal(item.error, undefined);
+	assert.deepEqual(item.allowedActions, []);
+	await assert.rejects(
+		service.execute("module.private-diagnostic", "repair", reader),
+		(error) => error instanceof RegistryError && error.code === "registry.capability_denied",
+	);
+	await assert.rejects(
+		service.project({ capabilities: new Set(), owner: nativeOwner }),
+		(error) => error instanceof RegistryError && error.code === "registry.capability_denied",
+	);
+});
 
 const nativeOwner = { kind: "native-module", identifier: "native.editorial" };
 
@@ -24,6 +148,179 @@ function contribution(type, identifier, overrides = {}) {
 		...overrides,
 	};
 }
+
+test("matérialise la racine entity du Site uniquement par le Registry", async () => {
+	const repository = new InMemoryEntityCatalogRepository();
+	const entities = new EntityCatalogService(repository);
+	const ecosystem = new EntityEcosystemService(new InMemoryEntityEcosystemRepository());
+	const foundation = nativeEntityFoundation();
+	const ecosystemFoundation = nativeEntityEcosystem();
+	const definition = contribution("module", "site", {
+		entities: {
+			fieldTypes: foundation.fieldTypes.map(({ ownerContributionKey, ...fieldType }) => {
+				assert.equal(ownerContributionKey, "module.site");
+				return fieldType;
+			}),
+			entityTypes: foundation.entityTypes.map(({ ownerContributionKey, ...entityType }) => {
+				assert.equal(ownerContributionKey, "module.site");
+				return entityType;
+			}),
+			ecosystem: Object.fromEntries(
+				Object.entries(ecosystemFoundation).filter(([key]) => key !== "sourceContributionKey"),
+			),
+		},
+	});
+	const { registry } = await createRegistry();
+	const stored = await registry.register(definition, { requester: nativeOwner });
+	await materializeEntityCatalogContribution(stored, entities, ecosystem);
+	const root = await entities.resolveEntityType("entity");
+	assert.equal(root.ownerContributionKey, "module.site");
+	assert.equal(root.locked, true);
+	assert.equal(root.effectiveFields.length, 8);
+	assert.equal((await ecosystem.list())[0]?.bundle.interfaces?.length, 6);
+
+	await assert.rejects(
+		registry.register(
+			contribution("translation", "invalid-entities", { entities: definition.entities }),
+			{ requester: nativeOwner },
+		),
+		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+	);
+});
+
+test("matérialise les ressources localisées du Site uniquement par le Registry", async () => {
+	const repository = new InMemoryLocalizationRepository();
+	const localization = new LocalizationService(repository);
+	const definition = contribution("module", "site", {
+		localizedTexts: {
+			resources: [
+				{
+					namespace: "navigation",
+					key: "home.title",
+					format: "plain",
+					allowInstanceOverride: true,
+					required: true,
+					values: { en: "Home", "fr-fr": "Accueil" },
+				},
+			],
+		},
+	});
+	const { registry } = await createRegistry();
+	const stored = await registry.register(definition, { requester: nativeOwner });
+	await materializeLocalizedTextContribution(stored, localization);
+	const resourceIdentifier = localizationResourceIdentifier(
+		"module.site",
+		"navigation",
+		"home.title",
+	);
+	const instanceId = "72000000-0000-4000-8000-000000000001";
+	await localization.configureInstanceLocale({
+		instanceId,
+		locale: "fr-FR",
+		enabled: true,
+		displayOrder: 0,
+		default: true,
+	});
+	assert.equal(
+		(
+			await localization.resolveLocalizedText(resourceIdentifier, {
+				instanceId,
+				requestedLocale: "fr-FR",
+			})
+		).value,
+		"Accueil",
+	);
+
+	for (const localizedTexts of [
+		{ resources: [] },
+		{
+			resources: [
+				{
+					namespace: "navigation",
+					key: "duplicate.locale",
+					format: "plain",
+					allowInstanceOverride: false,
+					required: true,
+					values: { "fr-FR": "Un", "fr-fr": "Deux" },
+				},
+			],
+		},
+		{
+			translations: [{ resourceIdentifier, values: { fr: "Interdit" } }],
+		},
+	]) {
+		await assert.rejects(
+			registry.register(contribution("module", "invalid.localization", { localizedTexts }), {
+				requester: nativeOwner,
+			}),
+			(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+		);
+	}
+});
+
+test("matérialise navigation et sidebars natives uniquement par le Registry", async () => {
+	const repository = new InMemoryNavigationRepository();
+	const navigation = new NavigationService(repository);
+	const foundation = nativeNavigationFoundation();
+	const definition = contribution("module", "site", {
+		navigation: Object.fromEntries(
+			Object.entries(foundation).filter(([key]) => key !== "sourceContributionKey"),
+		),
+	});
+	const { registry } = await createRegistry();
+	const stored = await registry.register(definition, { requester: nativeOwner });
+	await materializeNavigationContribution(stored, navigation);
+	const snapshot = await repository.snapshot();
+	assert.equal(snapshot.activeBrand, "core.home");
+	assert.equal(snapshot.bundles[0].sourceContributionKey, "module.site");
+	assert.equal(
+		snapshot.bundles[0].navigationItems.every(
+			(item) => item.ownerContributionKey === "module.site",
+		),
+		true,
+	);
+	assert.equal(snapshot.bundles[0].sidebars[0].identifier, "core.administration");
+
+	await assert.rejects(
+		registry.register(
+			contribution("translation", "invalid.navigation", {
+				navigation: definition.navigation,
+			}),
+			{ requester: nativeOwner },
+		),
+		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+	);
+});
+
+test("matérialise les pages natives uniquement par le Registry", async () => {
+	const repository = new InMemoryPageRepository();
+	const pages = new PageService(repository);
+	const foundation = nativePageFoundation();
+	const definition = contribution("module", "site", {
+		pages: {
+			pages: foundation.pages.map(({ ownerContributionKey, ...page }) => {
+				assert.equal(ownerContributionKey, "module.site");
+				return page;
+			}),
+		},
+	});
+	const { registry } = await createRegistry();
+	const stored = await registry.register(definition, { requester: nativeOwner });
+	await materializePageContribution(stored, pages);
+	const snapshot = await repository.snapshot();
+	assert.equal(snapshot.versions.length, 4);
+	assert.equal(
+		snapshot.versions.every((version) => version.definition.ownerContributionKey === "module.site"),
+		true,
+	);
+
+	await assert.rejects(
+		registry.register(contribution("page", "invalid.pages", { pages: definition.pages }), {
+			requester: nativeOwner,
+		}),
+		(error) => error instanceof RegistryError && error.code === "registry.contract_invalid",
+	);
+});
 
 async function createRegistry() {
 	const store = new InMemoryCoreStore();

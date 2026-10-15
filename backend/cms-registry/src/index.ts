@@ -5,6 +5,12 @@ export const foundation = Object.freeze({
 });
 
 export * from "./contracts.js";
+export * from "./administration.js";
+export * from "./entities.js";
+export * from "./localization.js";
+export * from "./navigation.js";
+export * from "./pages.js";
+export * from "./proof-addon.js";
 export * from "./messaging.js";
 export * from "./statistics.js";
 export * from "./themes.js";
