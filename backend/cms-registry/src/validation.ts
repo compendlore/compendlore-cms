@@ -11,6 +11,10 @@ import {
 	type ContributionOwner,
 } from "./contracts.js";
 import { RegistryError } from "./errors.js";
+import { validateEntityCatalogContribution } from "./entities.js";
+import { validateLocalizedTextContribution } from "./localization.js";
+import { validateNavigationContribution } from "./navigation.js";
+import { validatePageContribution } from "./pages.js";
 import {
 	messageAcknowledgements,
 	messageAudienceKinds,
@@ -160,6 +164,10 @@ export function validateContributionDefinition(definition: ContributionDefinitio
 	validateStatisticContract(definition);
 	validateMessagingContract(definition);
 	validateThemeContract(definition);
+	validateLocalizedTextContribution(definition);
+	validateEntityCatalogContribution(definition);
+	validateNavigationContribution(definition);
+	validatePageContribution(definition);
 	validateConfiguration(definition);
 	validateTranslations(definition.translations);
 	if (definition.payload !== undefined) assertJsonValue(definition.payload);

@@ -6,21 +6,20 @@ import {
 	DateTimePicker,
 	Field,
 	FrontendModuleRegistry,
-	Icon,
 	List,
 	ListItem,
-	MainNavigationRegistry,
 	Modal,
 	ModuleOutlet,
-	NavigationResolver,
+	usePageProjection,
+	useNavigationProjection,
 	Notice,
 	PageHeader,
 	SelectField,
-	SidebarElementRegistry,
-	SidebarRegistry,
 	type FrontendModuleProps,
 	type FrontendSessionContext,
 	type NavigationItem,
+	type NavigationProjectionView,
+	type PageProjectionView,
 	type RichBrandView,
 	type SidebarView,
 	Switch,
@@ -30,26 +29,26 @@ import {
 import { siteMessage } from "./messages.js";
 
 const registry = new FrontendModuleRegistry();
-registry.register({ identifier: "core.home", kind: "route", path: "/", component: HomePage });
+registry.register({ identifier: "core.page", kind: "page", component: DynamicPage });
 const publicSession: FrontendSessionContext = Object.freeze({
 	status: "anonymous",
 	roles: Object.freeze([]),
 	capabilities: new Set<string>(["core.site.view"]),
 });
 const capabilities = publicSession.capabilities;
-const mainNavigation = new MainNavigationRegistry();
-mainNavigation.register({
-	identifier: "core.home",
-	label: "Accueil",
-	href: "/",
-	visibility: "hidden",
-	systemRole: "home",
-});
-const navigationResolver = new NavigationResolver(
-	mainNavigation,
-	new SidebarRegistry(),
-	new SidebarElementRegistry(),
-);
+const developmentSiteNavigation = Object.freeze({
+	brand: Object.freeze({ label: "Compendlore CMS", href: "/" }),
+	primary: Object.freeze([]),
+	actions: Object.freeze([
+		{ id: "core.profile", label: "Compte utilisateur", icon: "account", command: "core.profile" },
+		{
+			id: "core.administration",
+			label: "Administration",
+			icon: "administration",
+			href: "/admin",
+		},
+	]),
+} satisfies NavigationProjectionView);
 const developmentThemeBrand: RichBrandView = Object.freeze({
 	accessibleLabel: "Donjon & Dragon",
 	segments: Object.freeze([
@@ -57,6 +56,42 @@ const developmentThemeBrand: RichBrandView = Object.freeze({
 		{ identifier: "ampersand", text: "&", styleSlot: "brand.accent" },
 		{ identifier: "name-end", text: " Dragon", styleSlot: "brand.primary" },
 	]),
+});
+const developmentHomePage = Object.freeze({
+	identifier: "core.home",
+	component: "core.page",
+	title: "Compendlore CMS",
+	content: Object.freeze([
+		{
+			kind: "header" as const,
+			eyebrow: "Portail public",
+			title: "Compendlore CMS",
+			description: "Une fondation modulaire pour publier et explorer des univers de jeu de rôle.",
+		},
+		{
+			kind: "card" as const,
+			eyebrow: "Navigation",
+			title: "Contenus enregistrés",
+			description:
+				"Les pages, menus et interfaces apparaîtront ici lorsqu’un module autorisé les enregistrera.",
+		},
+		{
+			kind: "card" as const,
+			eyebrow: "Session",
+			title: "Accès utilisateur",
+			description:
+				"La navigation adapte les modules visibles aux capacités de la session, sans exposer les outils administratifs.",
+		},
+		{
+			kind: "card" as const,
+			eyebrow: "Résilience",
+			title: "Interface disponible",
+			description:
+				"Une contribution indisponible est isolée afin que le reste du site continue de fonctionner.",
+		},
+	]),
+	revision: 1,
+	fingerprint: "0".repeat(64),
 });
 const developmentCompactNavigation: readonly NavigationItem[] = Object.freeze([
 	{
@@ -140,9 +175,18 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(window.location.pathname);
 	};
-	const navigation = navigationResolver.resolve(path, capabilities);
 	const locale = navigator.language || "fr-FR";
-	const contribution = registry.resolveRoute(path, capabilities);
+	const navigation = useNavigationProjection(
+		{ path, surface: "site", locale },
+		developmentSiteNavigation,
+		!import.meta.env.DEV || new URLSearchParams(window.location.search).has("navigation-api"),
+	);
+	const page = usePageProjection(
+		{ path, surface: "site", locale },
+		path === "/" ? developmentHomePage : undefined,
+		!import.meta.env.DEV || new URLSearchParams(window.location.search).has("page-api"),
+	);
+	const contribution = page ? registry.resolve(page.component, capabilities) : undefined;
 	const showDesignSystem =
 		import.meta.env.DEV && new URLSearchParams(window.location.search).has("design-system");
 	const showModuleHost =
@@ -158,22 +202,11 @@ export function App() {
 	return (
 		<ApplicationShell
 			brand={showThemeBrand ? developmentThemeBrand : undefined}
-			primaryNavigation={
-				showCompactNavigation ? developmentCompactNavigation : navigation.mainLinks
-			}
+			brandNavigation={navigation.brand}
+			primaryNavigation={showCompactNavigation ? developmentCompactNavigation : navigation.primary}
 			sidebar={showCompactNavigation ? developmentCompactSidebar : navigation.sidebar}
 			onNavigate={navigate}
-			actions={
-				<>
-					<Button aria-label="Compte utilisateur">
-						<Icon name="account" />
-					</Button>
-					<a className="button button--secondary" href="/admin">
-						<Icon name="administration" />
-						<span>Administration</span>
-					</a>
-				</>
-			}
+			navigationActions={navigation.actions}
 		>
 			{showCompactNavigation ? (
 				<DevelopmentCompactNavigationPage />
@@ -195,6 +228,7 @@ export function App() {
 						locale,
 						session: publicSession,
 					}}
+					state={page}
 					fallback={
 						<Notice
 							tone="danger"
@@ -479,31 +513,26 @@ function DevelopmentDesignSystemPage() {
 	);
 }
 
-function HomePage(_props: FrontendModuleProps) {
+function DynamicPage({ state }: FrontendModuleProps) {
+	const page = state as PageProjectionView;
+	const header = page.content.find((block) => block.kind === "header");
+	const cards = page.content.filter((block) => block.kind === "card");
 	return (
 		<>
-			<PageHeader
-				eyebrow="Portail public"
-				title="Compendlore CMS"
-				description="Une fondation modulaire pour publier et explorer des univers de jeu de rôle."
-			/>
-			<section className="content-grid">
-				<Card
-					eyebrow="Navigation"
-					title="Contenus enregistrés"
-					description="Les pages, menus et interfaces apparaîtront ici lorsqu’un module autorisé les enregistrera."
+			{header ? (
+				<PageHeader
+					eyebrow={header.eyebrow ?? ""}
+					title={header.title}
+					description={header.description}
 				/>
-				<Card
-					eyebrow="Session"
-					title="Accès utilisateur"
-					description="La navigation adapte les modules visibles aux capacités de la session, sans exposer les outils administratifs."
-				/>
-				<Card
-					eyebrow="Résilience"
-					title="Interface disponible"
-					description="Une contribution indisponible est isolée afin que le reste du site continue de fonctionner."
-				/>
-			</section>
+			) : null}
+			{cards.length > 0 ? (
+				<section className="content-grid">
+					{cards.map((card, index) => (
+						<Card key={`${page.identifier}.${index}`} {...card} />
+					))}
+				</section>
+			) : null}
 		</>
 	);
 }

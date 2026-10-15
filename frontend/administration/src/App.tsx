@@ -7,17 +7,15 @@ import {
 	DateTimePicker,
 	Field,
 	FrontendModuleRegistry,
-	Icon,
-	MainNavigationRegistry,
 	Modal,
 	ModuleOutlet,
 	NotificationHub,
-	NavigationResolver,
 	Notice,
 	PageHeader,
 	SelectField,
-	SidebarElementRegistry,
-	SidebarRegistry,
+	useNavigationProjection,
+	usePageProjection,
+	useRegistryAdministrationProjection,
 	Switch,
 	Table,
 	Tabs,
@@ -27,74 +25,130 @@ import {
 	type AdministrationSessionSnapshot,
 	type FrontendModuleProps,
 	type FrontendSessionContext,
+	type NavigationProjectionView,
+	type RegistryAdministrationProjectionView,
 } from "@compendlore/ui";
 import { administrationMessage } from "./messages.js";
 
 const registry = new FrontendModuleRegistry();
 registry.register({
 	identifier: "core.admin.dashboard",
-	kind: "route",
-	path: "/admin",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: DashboardPage,
 });
 registry.register({
 	identifier: "core.admin.modules",
-	kind: "route",
-	path: "/admin/modules",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: ModulesPage,
 });
 registry.register({
 	identifier: "core.admin.interface",
-	kind: "route",
-	path: "/admin/interface",
+	kind: "page",
 	requiredCapability: "core.administration.access",
 	component: InterfacePage,
 });
-const administrationSidebars = new SidebarRegistry();
-const administrationSidebarElements = new SidebarElementRegistry();
-const administrationNavigation = new NavigationResolver(
-	new MainNavigationRegistry(),
-	administrationSidebars,
-	administrationSidebarElements,
-);
+const developmentAdministrationNavigation = Object.freeze({
+	brand: Object.freeze({ label: "Compendlore CMS", href: "/" }),
+	primary: Object.freeze([]),
+	actions: Object.freeze([
+		{ id: "core.site", label: "Voir le site", href: "/" },
+		{ id: "core.logout", label: "Se déconnecter", icon: "logout", command: "core.logout" },
+	]),
+	sidebar: Object.freeze({
+		id: "core.administration",
+		eyebrow: "Explorer",
+		title: "Administration",
+		subtitle: "Accès protégé par rôle et second facteur",
+		icon: "administration",
+		items: Object.freeze([
+			{
+				kind: "link" as const,
+				id: "core.administration.dashboard",
+				label: "Pilotage",
+				href: "/admin",
+				icon: "administration" as const,
+				description: "État du CMS",
+				active: false,
+				children: Object.freeze([]),
+			},
+			{
+				kind: "link" as const,
+				id: "core.administration.modules",
+				label: "Modules",
+				href: "/admin/modules",
+				icon: "menu" as const,
+				description: "Contributions enregistrées",
+				active: false,
+				children: Object.freeze([]),
+			},
+			{
+				kind: "link" as const,
+				id: "core.administration.interface",
+				label: "Interface",
+				href: "/admin/interface",
+				icon: "settings" as const,
+				description: "Composants du CMS",
+				active: false,
+				children: Object.freeze([]),
+			},
+		]),
+	}),
+} satisfies NavigationProjectionView);
 
-administrationSidebars.register({
-	identifier: "core.administration",
-	eyebrow: "Explorer",
-	title: "Administration",
-	subtitle: "Accès protégé par rôle et second facteur",
-	icon: "administration",
-	requiredCapability: "core.administration.access",
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.dashboard",
-	kind: "link",
-	label: "Pilotage",
-	href: "/admin",
-	icon: "administration",
-	description: "État du CMS",
-	order: 10,
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.modules",
-	kind: "link",
-	label: "Modules",
-	href: "/admin/modules",
-	icon: "menu",
-	description: "Contributions enregistrées",
-	order: 20,
-});
-administrationSidebarElements.register("core.administration", {
-	identifier: "core.administration.interface",
-	kind: "link",
-	label: "Interface",
-	href: "/admin/interface",
-	icon: "settings",
-	description: "Composants du CMS",
-	order: 30,
-});
+const developmentAdministrationPages: Readonly<Record<string, ReturnType<typeof pageFixture>>> =
+	Object.freeze({
+		"/admin": pageFixture("core.admin.dashboard", "Tableau de bord"),
+		"/admin/modules": pageFixture("core.admin.modules", "Modules"),
+		"/admin/interface": pageFixture("core.admin.interface", "Interface"),
+	});
+
+const developmentRegistryAdministration = Object.freeze({
+	generatedAt: "2026-10-15T00:00:00.000Z",
+	contributions: Object.freeze([
+		{
+			key: "module.core",
+			identifier: "core",
+			type: "module",
+			state: "active",
+			version: "1.0.0",
+			owner: Object.freeze({ kind: "core", identifier: "core" }),
+			locked: true,
+			dependencies: Object.freeze([]),
+			dependents: Object.freeze(["module.site"]),
+			blockers: Object.freeze(["module.site"]),
+			allowedActions: Object.freeze([]),
+		},
+		{
+			key: "module.site",
+			identifier: "site",
+			type: "module",
+			state: "active",
+			version: "1.0.0",
+			owner: Object.freeze({ kind: "native-module", identifier: "native.site" }),
+			locked: false,
+			dependencies: Object.freeze(["module.core"]),
+			dependents: Object.freeze([]),
+			blockers: Object.freeze([]),
+			allowedActions: Object.freeze(["disable", "withdraw"] as const),
+		},
+		{
+			key: "module.example-addon",
+			identifier: "example-addon",
+			type: "module",
+			state: "failed",
+			version: "1.1.0",
+			owner: Object.freeze({ kind: "addon", identifier: "example-addon" }),
+			locked: false,
+			dependencies: Object.freeze(["module.site"]),
+			dependents: Object.freeze([]),
+			blockers: Object.freeze([]),
+			allowedActions: Object.freeze(["repair", "withdraw"] as const),
+			error: "La dernière activation a échoué sans exposer de donnée sensible.",
+		},
+	]),
+} satisfies RegistryAdministrationProjectionView);
 
 export function App() {
 	const [sessionSnapshot, setSessionSnapshot] = useState(readAdministrationSession);
@@ -145,6 +199,17 @@ export function App() {
 			channel.close();
 		};
 	}, [sessionSnapshot]);
+	const locale = navigator.language || "fr-FR";
+	const navigation = useNavigationProjection(
+		{ path, surface: "administration", locale },
+		developmentAdministrationNavigation,
+		!import.meta.env.DEV || new URLSearchParams(window.location.search).has("navigation-api"),
+	);
+	const page = usePageProjection(
+		{ path, surface: "administration", locale },
+		developmentAdministrationPages[path],
+		!import.meta.env.DEV || new URLSearchParams(window.location.search).has("page-api"),
+	);
 	if (!hasAdministrationShellAccess(sessionSnapshot)) return null;
 	const administrationSession = toFrontendSession(sessionSnapshot);
 	const capabilities = administrationSession.capabilities;
@@ -156,31 +221,18 @@ export function App() {
 		window.history.pushState(null, "", href);
 		setPath(href);
 	};
-	const sidebar = administrationNavigation.resolveSidebar(
-		"core.administration",
-		path,
-		capabilities,
-	);
-	const locale = navigator.language || "fr-FR";
 	return (
 		<ApplicationShell
 			administration
-			sidebar={sidebar}
+			brandNavigation={navigation.brand}
+			primaryNavigation={navigation.primary}
+			sidebar={navigation.sidebar}
 			onNavigate={navigate}
-			actions={
-				<>
-					<a className="button" href="/">
-						<span>Voir le site</span>
-					</a>
-					<Button tone="danger" aria-label="Se déconnecter">
-						<Icon name="logout" />
-					</Button>
-				</>
-			}
+			navigationActions={navigation.actions}
 		>
 			{isShellSecurityPreview() ? <ShellSecurityPreview locale={locale} /> : null}
 			<ModuleOutlet
-				contribution={registry.resolveRoute(path, capabilities)}
+				contribution={page ? registry.resolve(page.component, capabilities) : undefined}
 				context={{
 					capabilities,
 					locale,
@@ -197,6 +249,17 @@ export function App() {
 			/>
 		</ApplicationShell>
 	);
+}
+
+function pageFixture(component: string, title: string) {
+	return Object.freeze({
+		identifier: component,
+		component,
+		title,
+		content: Object.freeze([]),
+		revision: 1,
+		fingerprint: "0".repeat(64),
+	});
 }
 
 const previewNotifications = [
@@ -362,17 +425,72 @@ function DashboardPage(_props: FrontendModuleProps) {
 }
 
 function ModulesPage(_props: FrontendModuleProps) {
+	const projection = useRegistryAdministrationProjection(
+		developmentRegistryAdministration,
+		!import.meta.env.DEV || new URLSearchParams(window.location.search).has("registry-api"),
+	);
 	return (
 		<>
 			<PageHeader
 				eyebrow="Administration · Registre"
-				title="Modules frontend"
-				description="Prévisualisation de l’hôte qui recevra les contributions métier à la phase suivante."
+				title="Contributions"
+				description="Inspectez les propriétaires, verrouillages, dépendances et opérations autorisées par le Core."
 			/>
-			<Notice tone="information" title="Fondation prête">
-				Les contrats sont actifs. Le catalogue métier sera raccordé pendant le premier parcours
-				vertical.
-			</Notice>
+			<Table
+				caption="Catalogue des contributions enregistrées"
+				columns={[
+					{
+						key: "contribution",
+						title: "Contribution",
+						render: (row) => (
+							<>
+								<strong>{row.identifier}</strong>
+								<br />
+								<small>
+									{row.type} · v{row.version}
+								</small>
+							</>
+						),
+					},
+					{
+						key: "owner",
+						title: "Propriétaire",
+						render: (row) => `${row.owner.kind} · ${row.owner.identifier}`,
+					},
+					{
+						key: "state",
+						title: "État",
+						render: (row) => `${row.state}${row.locked ? " · verrouillée" : ""}`,
+					},
+					{
+						key: "relations",
+						title: "Dépendances",
+						render: (row) => (
+							<>
+								{row.dependencies.length ? row.dependencies.join(", ") : "Aucune"}
+								{row.blockers.length ? (
+									<>
+										<br />
+										<small>Blocage : {row.blockers.join(", ")}</small>
+									</>
+								) : null}
+							</>
+						),
+					},
+					{
+						key: "actions",
+						title: "Actions autorisées",
+						render: (row) => (row.allowedActions.length ? row.allowedActions.join(", ") : "Aucune"),
+					},
+					{
+						key: "diagnostic",
+						title: "Diagnostic",
+						render: (row) => row.error ?? "—",
+					},
+				]}
+				rows={projection.contributions}
+				rowKey={(row) => row.key}
+			/>
 		</>
 	);
 }

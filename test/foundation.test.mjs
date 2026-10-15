@@ -2,6 +2,17 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { URL } from "node:url";
+
+test("la synchronisation des notifications reste additive et sans sujet natif en migration", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/020_core_native_notification_sync.up.sql", import.meta.url),
+		"utf8",
+	);
+	assert.match(migration, /ADD COLUMN IF NOT EXISTS revision BIGINT/);
+	assert.match(migration, /notification_state_revision_sequence/);
+	assert.match(migration, /notification_user_states_revision_idx/);
+	assert.doesNotMatch(migration, /INSERT\s+INTO\s+core\.messaging_topics/i);
+});
 import { foundation as apiFoundation } from "../backend/build/api/src/index.js";
 import { foundation } from "../backend/build/core/src/index.js";
 import { foundation as registryFoundation } from "../backend/build/cms-registry/src/index.js";
@@ -189,6 +200,98 @@ test("l’identité d’instance ne persiste que sa partie publique dans le Core
 	assert.match(migration, /assurance_level IN \('hardware', 'protected-file', 'system'\)/);
 	assert.doesNotMatch(migration, /private_key|private_key_pem/i);
 	assert.doesNotMatch(migration, /\b(?:DROP|TRUNCATE)\b/i);
+});
+
+test("la fondation des entités reste additive et limitée aux catalogues Core", async () => {
+	const [foundation, ecosystem] = await Promise.all([
+		readFile(
+			new URL("../backend/core/migrations/016_core_entities.up.sql", import.meta.url),
+			"utf8",
+		),
+		readFile(
+			new URL("../backend/core/migrations/017_core_entity_ecosystem.up.sql", import.meta.url),
+			"utf8",
+		),
+	]);
+	const migrations = `${foundation}\n${ecosystem}`;
+
+	for (const table of [
+		"entity_types",
+		"entity_field_types",
+		"entity_field_definitions",
+		"entity_relation_definitions",
+		"entity_interfaces",
+		"entity_record_ownership",
+		"entity_record_relations",
+		"measurement_definitions",
+		"measurement_units",
+		"taxonomy_vocabularies",
+		"taxonomy_terms",
+		"entity_search_documents",
+		"entity_import_jobs",
+		"entity_schema_evolution_plans",
+	]) {
+		assert.match(migrations, new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? core\\.${table}\\b`));
+	}
+
+	assert.match(ecosystem, /DROP CONSTRAINT IF EXISTS entity_field_types_storage_check/);
+	assert.match(ecosystem, /ON DELETE RESTRICT/);
+	for (const [, table] of migrations.matchAll(
+		/CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z_][\w.]*)/gi,
+	)) {
+		assert.match(table, /^core\./);
+	}
+	assert.doesNotMatch(migrations, /\bcms_data\b/i);
+	assert.doesNotMatch(migrations, /\b(?:DROP TABLE|TRUNCATE|DELETE FROM)\b/i);
+});
+
+test("la fondation de navigation reste structurelle et sans donnée native en migration", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/018_core_navigation.up.sql", import.meta.url),
+		"utf8",
+	);
+
+	for (const table of [
+		"navigation_modes",
+		"navigation_target_types",
+		"navigation_actions",
+		"navigation_targets",
+		"navigation_links",
+		"sidebars",
+		"sidebar_items",
+		"navigation_items",
+		"navigation_brand_assignments",
+	]) {
+		assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS core\\.${table}\\b`));
+	}
+
+	for (const [, table] of migration.matchAll(
+		/CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z_][\w.]*)/gi,
+	)) {
+		assert.match(table, /^core\./);
+	}
+	assert.match(migration, /ON DELETE RESTRICT/);
+	assert.doesNotMatch(migration, /\bINSERT\s+INTO\s+core\.(?:navigation|sidebar)/i);
+	assert.doesNotMatch(migration, /\b(?:DROP TABLE|TRUNCATE|DELETE FROM)\b/i);
+});
+
+test("la fondation des pages reste structurelle et sans page en migration", async () => {
+	const migration = await readFile(
+		new URL("../backend/core/migrations/019_core_pages.up.sql", import.meta.url),
+		"utf8",
+	);
+	for (const table of [
+		"pages",
+		"page_versions",
+		"page_routes",
+		"page_publications",
+		"page_imports",
+	]) {
+		assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS core\\.${table}\\b`));
+	}
+	assert.match(migration, /ON DELETE RESTRICT/);
+	assert.doesNotMatch(migration, /\bINSERT\s+INTO\b/i);
+	assert.doesNotMatch(migration, /\b(?:DROP TABLE|TRUNCATE|DELETE FROM)\b/i);
 });
 
 test("les services fondamentaux possèdent leurs ressources Encore et persistantes", async () => {

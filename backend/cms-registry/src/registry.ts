@@ -546,6 +546,8 @@ function definitionFromStored(contribution: StoredContribution): ContributionDef
 			: {}),
 		...(contribution.configuration ? { configuration: contribution.configuration } : {}),
 		...(contribution.translations ? { translations: contribution.translations } : {}),
+		...(contribution.localizedTexts ? { localizedTexts: contribution.localizedTexts } : {}),
+		...(contribution.entities ? { entities: contribution.entities } : {}),
 		...(contribution.replacementPolicy
 			? { replacementPolicy: contribution.replacementPolicy }
 			: {}),

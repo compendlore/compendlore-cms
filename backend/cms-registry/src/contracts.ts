@@ -1,7 +1,13 @@
 import type {
 	ConnectorDefinition,
 	CoreJsonValue,
+	EntityEcosystemBundle,
+	EntityFieldTypeDefinition,
+	EntityTypeDefinition,
 	FrontendNetworkDefinition,
+	LocalizedTextFormat,
+	NavigationBundle,
+	PageBundle,
 	ThemeContractDefinition,
 } from "../../core/src/index.js";
 import type {
@@ -114,6 +120,34 @@ export interface MethodContractDefinition {
 	readonly idempotent: boolean;
 }
 
+export interface LocalizedTextResourceDeclaration {
+	readonly namespace: string;
+	readonly key: string;
+	readonly format: LocalizedTextFormat;
+	readonly allowInstanceOverride: boolean;
+	readonly required: boolean;
+	readonly values: Readonly<Record<string, string>>;
+}
+
+export interface LocalizedTextTranslationDeclaration {
+	readonly resourceIdentifier: string;
+	readonly values: Readonly<Record<string, string>>;
+}
+
+export interface LocalizedTextContributionDefinition {
+	readonly resources?: readonly LocalizedTextResourceDeclaration[];
+	readonly translations?: readonly LocalizedTextTranslationDeclaration[];
+}
+
+export interface EntityCatalogContributionDefinition {
+	readonly fieldTypes?: readonly Omit<EntityFieldTypeDefinition, "ownerContributionKey">[];
+	readonly entityTypes?: readonly Omit<EntityTypeDefinition, "ownerContributionKey">[];
+	readonly ecosystem?: Omit<EntityEcosystemBundle, "sourceContributionKey">;
+}
+
+export type NavigationContributionDefinition = Omit<NavigationBundle, "sourceContributionKey">;
+export type PageContributionDefinition = Omit<PageBundle, "sourceContributionKey">;
+
 export type ApiAudience = "internal" | "public" | "site";
 export type ApiHttpMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
 
@@ -180,6 +214,10 @@ export interface ContributionDefinition {
 	readonly requiredCapabilities?: readonly string[];
 	readonly configuration?: readonly ConfigurationFieldDefinition[];
 	readonly translations?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+	readonly localizedTexts?: LocalizedTextContributionDefinition;
+	readonly entities?: EntityCatalogContributionDefinition;
+	readonly navigation?: NavigationContributionDefinition;
+	readonly pages?: PageContributionDefinition;
 	readonly withdrawalPolicy: WithdrawalPolicy;
 	readonly replacementPolicy?: ReplacementPolicy;
 	readonly replaces?: string;

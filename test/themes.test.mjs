@@ -7,9 +7,11 @@ import {
 	compendloreThemeIdentifier,
 	CoreRegistryPort,
 	compileThemeCssProjection,
+	InMemoryThemePersistenceRepository,
 	InMemoryCoreStore,
 	resolveThemeFoundationPlan,
 	resolveThemeBrand,
+	ThemePersistenceService,
 	themeBoundaryOwners,
 	themeLayerOrder,
 	themeSurfaces,
@@ -554,4 +556,255 @@ test("revient au thème Compendlore pour une projection active ou incompatible",
 		assert.equal(applyThemeProjection(root, "site", invalid).status, "fallback");
 		assert.equal(applied.get("--bg"), "#090c10");
 	}
+});
+
+function persistedThemeContract(overrides = {}) {
+	return {
+		kind: "full-theme",
+		surfaces: ["site"],
+		designSystemVersion: "^1.0.0",
+		fallback: "compendlore",
+		tokens: {
+			global: {
+				"color.background": { kind: "color", value: "#10151d" },
+				"color.accent": { kind: "color", value: "#d1a85a" },
+			},
+		},
+		...overrides,
+	};
+}
+
+function themePersistenceHarness(analyzedAssets = new Map()) {
+	const repository = new InMemoryThemePersistenceRepository();
+	const validator = {
+		validateThemeContract(contract) {
+			validateThemeTokenSet(contract.tokens ?? {});
+			if (contract.brand) validateThemeBrand(contract.brand);
+		},
+		validateThemeTokens(tokens) {
+			validateThemeTokenSet(tokens);
+		},
+	};
+	const assets = {
+		async resolveAnalyzedAsset(identifier) {
+			return analyzedAssets.get(identifier);
+		},
+	};
+	return {
+		repository,
+		service: new ThemePersistenceService(
+			repository,
+			validator,
+			assets,
+			"1.0.0",
+			() => new Date("2026-10-15T10:00:00.000Z"),
+		),
+	};
+}
+
+async function publishTheme(service, themeIdentifier, contract, ownerIdentifier = "native.site") {
+	const revision = await service.createRevision({
+		themeIdentifier,
+		ownerIdentifier,
+		contract,
+	});
+	await service.publish({ themeIdentifier, revision: revision.revision });
+	return revision;
+}
+
+test("persiste des révisions de thème immuables et des publications restaurables", async () => {
+	const { repository, service } = themePersistenceHarness();
+	const first = await publishTheme(service, compendloreThemeIdentifier, persistedThemeContract());
+	const second = await service.createRevision({
+		themeIdentifier: compendloreThemeIdentifier,
+		ownerIdentifier: "native.site",
+		contract: persistedThemeContract({
+			tokens: {
+				global: { "color.background": { kind: "color", value: "#111820" } },
+			},
+		}),
+	});
+	await service.publish({ themeIdentifier: compendloreThemeIdentifier, revision: second.revision });
+	await service.publish({
+		themeIdentifier: compendloreThemeIdentifier,
+		revision: first.revision,
+		restoredFromRevision: second.revision,
+	});
+
+	const snapshot = await repository.snapshot();
+	assert.equal(first.revision, 1);
+	assert.equal(second.revision, 2);
+	assert.notEqual(first.fingerprint, second.fingerprint);
+	assert.equal(snapshot.revisions[0].contract.tokens.global["color.background"].value, "#10151d");
+	assert.equal(snapshot.publications[0].revision, 1);
+	assert.equal(snapshot.publications[0].restoredFromRevision, 2);
+	await assert.rejects(
+		service.createRevision({
+			themeIdentifier: compendloreThemeIdentifier,
+			ownerIdentifier: "addon.hostile",
+			contract: persistedThemeContract(),
+		}),
+		(error) => error.code === "authorization.denied",
+	);
+});
+
+test("projette les affectations de thème dans l’ordre canonique avec empreinte et mode", async () => {
+	const { service } = themePersistenceHarness();
+	await publishTheme(
+		service,
+		compendloreThemeIdentifier,
+		persistedThemeContract({ brand: richBrand }),
+	);
+	await publishTheme(
+		service,
+		"official.readability",
+		persistedThemeContract({
+			kind: "theme-extension",
+			baseThemeIdentifier: compendloreThemeIdentifier,
+			fallback: "reject",
+			tokens: {
+				global: { "color.accent": { kind: "color", value: "#76c7b7" } },
+			},
+		}),
+	);
+	await service.assign({
+		identifier: "site.default",
+		surface: "site",
+		mode: "default",
+		baseThemeIdentifier: compendloreThemeIdentifier,
+		extensions: [
+			{ kind: "theme-extension", sourceIdentifier: "official.readability", priority: 10 },
+		],
+		overrides: [
+			{
+				identifier: "instance.visual",
+				kind: "instance-override",
+				priority: 0,
+				tokens: {
+					global: { "page.inline-spacing": { kind: "length", value: 5, unit: "%" } },
+				},
+			},
+			{
+				identifier: "user.readability",
+				kind: "user-preference",
+				priority: 0,
+				tokens: {
+					global: { "body.font-size": { kind: "length", value: 1.1, unit: "rem" } },
+				},
+			},
+		],
+	});
+
+	const projection = await service.project({ surface: "site", mode: "default", locale: "fr-FR" });
+	assert.equal(projection.mode, "default");
+	assert.equal(projection.compatibility.status, "compatible");
+	assert.match(projection.fingerprint, /^[a-f0-9]{64}$/);
+	assert.deepEqual(
+		projection.layers.map((layer) => layer.kind),
+		[
+			"core-invariant",
+			"design-system",
+			"theme",
+			"theme-extension",
+			"instance-override",
+			"user-preference",
+		],
+	);
+	assert.equal(projection.css.variables["--gold"], "#76c7b7");
+	assert.equal(projection.css.variables["--page-inline-spacing"], "5%");
+	assert.equal(projection.css.variables["--theme-body-font-size"], "1.1rem");
+	assert.equal(projection.brand.accessibleLabel, "Donjon & Dragon");
+});
+
+test("met en cache par révision et invalide uniquement les projections concernées", async () => {
+	const { service } = themePersistenceHarness();
+	await publishTheme(service, compendloreThemeIdentifier, persistedThemeContract());
+	await publishTheme(
+		service,
+		"official.admin",
+		persistedThemeContract({ surfaces: ["administration"] }),
+	);
+	await service.assign({
+		identifier: "site.default",
+		surface: "site",
+		mode: "default",
+		baseThemeIdentifier: compendloreThemeIdentifier,
+	});
+	await service.assign({
+		identifier: "administration.default",
+		surface: "administration",
+		mode: "default",
+		baseThemeIdentifier: "official.admin",
+	});
+	await service.project({ surface: "site", locale: "fr" });
+	await service.project({ surface: "site", locale: "fr" });
+	await service.project({ surface: "administration", locale: "fr" });
+	assert.deepEqual(service.cacheStatus(), {
+		hits: 1,
+		misses: 2,
+		entries: ["administration.default:1:fr", "site.default:1:fr"],
+	});
+
+	const next = await service.createRevision({
+		themeIdentifier: compendloreThemeIdentifier,
+		ownerIdentifier: "native.site",
+		contract: persistedThemeContract({
+			tokens: { global: { "color.accent": { kind: "color", value: "#b58cff" } } },
+		}),
+	});
+	await service.publish({ themeIdentifier: compendloreThemeIdentifier, revision: next.revision });
+	assert.deepEqual(service.cacheStatus().entries, ["administration.default:1:fr"]);
+	const refreshed = await service.project({ surface: "site", locale: "fr" });
+	assert.equal(refreshed.css.variables["--gold"], "#b58cff");
+	assert.equal(service.cacheStatus().misses, 3);
+});
+
+test("refuse les assets de thème non analysés et toute référence libre", async () => {
+	const analyzed = new Map([
+		[
+			"theme.font.cinzel",
+			{
+				identifier: "theme.font.cinzel",
+				digest: "a".repeat(64),
+				evidenceId: "analysis.theme.font.cinzel",
+				status: "allowed",
+			},
+		],
+	]);
+	const { service } = themePersistenceHarness(analyzed);
+	const withFont = (assetIdentifier) =>
+		persistedThemeContract({
+			tokens: {
+				global: {
+					"brand.font-family": {
+						kind: "font-family",
+						source: "asset",
+						assetIdentifier,
+						fallbackFamilies: ["Georgia"],
+					},
+				},
+			},
+		});
+	const accepted = await service.createRevision({
+		themeIdentifier: "instance.safe",
+		ownerIdentifier: "instance",
+		contract: withFont("theme.font.cinzel"),
+	});
+	assert.equal(accepted.assets[0].identifier, "theme.font.cinzel");
+	await assert.rejects(
+		service.createRevision({
+			themeIdentifier: "instance.missing",
+			ownerIdentifier: "instance",
+			contract: withFont("theme.font.missing"),
+		}),
+		(error) => error.code === "configuration.invalid",
+	);
+	await assert.rejects(
+		service.createRevision({
+			themeIdentifier: "instance.remote",
+			ownerIdentifier: "instance",
+			contract: withFont("https://example.test/font.woff2"),
+		}),
+		(error) => error.code === "registry.contract_invalid",
+	);
 });
